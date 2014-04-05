@@ -229,6 +229,10 @@ var XQueryWorker = exports.XQueryWorker = function(sender) {
     this.sender.on("setModuleResolver", function(e){
         that.moduleResolver = getModuleResolverFromModules(e.data);
     });
+    
+    this.sender.on("setFileName", function(e){
+        that.fileName = e.data;
+    });
 };
 
 oop.inherits(XQueryWorker, Mirror);
@@ -248,6 +252,7 @@ oop.inherits(XQueryWorker, Mirror);
         var opts = {
             styleCheck: this.styleCheck,
             staticContext: sctx,
+            fileName: this.fileName
         };
         this.xqlint = new XQLint(value, opts);
         this.sender.emit("markers", this.xqlint.getMarkers());
