@@ -3959,7 +3959,8 @@ var Autocomplete = function() {
             var matches = results && results.matches;
             if (!matches || !matches.length)
                 return this.detach();
-            if (!prefix || !prefix.length || !matches || !matches.length)
+
+            if (!matches || !matches.length)
                 return doDetach();
             if (prefix.indexOf(results.prefix) != 0 || _id != this.gatherCompletionsId)
                 return;
@@ -4549,35 +4550,25 @@ var loadSnippetFile = function(id) {
 
 var doLiveAutocomplete = function(e) {
     var editor = e.editor;
-    var session = editor.getSession();
-    var pos = editor.getCursorPosition();
-    var line = session.getLine(pos.row);
-    var hasCompleter = (editor.completer && editor.completer.activated);
-
     var text = e.args || "";
-    var typing = (e.command.name === "insertstring" && text.length === 1);
-    if(
-        e.command.name === 'backspace' &&
-        util.retrievePrecedingIdentifier(line, pos.column) === ''
-    ) {
-        if(hasCompleter) editor.completer.detach();
-        return;
-    }
-    if(!typing) {
-        return;
-    }
+    var pos = editor.getCursorPosition();
+    var line = editor.session.getLine(pos.row);
+    var hasCompleter = editor.completer && editor.completer.activated;
     var prefix = util.retrievePrecedingIdentifier(line, pos.column);
-    if(prefix !== '' && !(hasCompleter)) {
-        if (!editor.completer) {
-            editor.completer = new Autocomplete();
-            editor.completer.autoInsert = false;
+    if (e.command.name === "backspace" && !prefix) {
+        if (hasCompleter) 
+            editor.completer.detach();
+    }
+    else if (e.command.name === "insertstring") {
+        if (prefix && !hasCompleter) {
+            if (!editor.completer) {
+                editor.completer = new Autocomplete();
+                editor.completer.autoInsert = false;
+            }
+            editor.completer.showPopup(editor);
+        } else if (!prefix && hasCompleter) {
+            editor.completer.detach();
         }
-
-        editor.completer.showPopup(editor);
-        editor.completer.cancelContextMenu();
-
-    } else if(prefix === '' && hasCompleter) {
-        editor.completer.detach();
     }
 };
 
