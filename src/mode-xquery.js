@@ -50,8 +50,14 @@ var Mode = function() {
 oop.inherits(Mode, TextMode);
 
 (function() {
-    
+    var uriRegex = /[a-zA-Z_0-9\/\.:\-#]/;
+    var char = '-._A-Za-z0-9:\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02ff\u0300-\u037D\u037F-\u1FFF\u200C\u200D\u203f\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD';
+    var nameChar = '[' + char + ']';
+    var varChar = '[' + char + '\\$]';
+    var nameCharRegExp = new RegExp(nameChar);
+    var varCharRegExp = new RegExp(varChar); 
     LanguageTools.addCompleter({
+        identifierRegexprs: [uriRegex, nameCharRegExp, varCharRegExp],
         getCompletions: function(editor, session, pos, prefix, callback) {
             session.$worker.emit("complete", { data: { pos: pos, prefix: prefix } });
             session.$worker.on("complete", function(e){
@@ -3946,7 +3952,7 @@ var Autocomplete = function() {
             var pos = editor.getCursorPosition();
             var line = session.getLine(pos.row);
             callback(null, {
-                prefix: util.retrievePrecedingIdentifier(line, pos.column),
+                    prefix: util.retrievePrecedingIdentifier(line, pos.column, results.length > 0 ? results[0].identifierRegex : undefined),
                     matches: matches,
                     finished: (--total === 0)
             });
@@ -3999,10 +4005,7 @@ var Autocomplete = function() {
                 if (!results.finished) return;
                 return this.detach();
             }.bind(this);
-            var session = this.editor.getSession();
-            var pos = this.editor.getCursorPosition();
-            var line = session.getLine(pos.row);
-            var prefix = util.retrievePrecedingIdentifier(line, pos.column);
+            var prefix = results.prefix;
             var matches = results && results.matches;
             if (!matches || !matches.length)
                 return this.detach();
@@ -4602,6 +4605,16 @@ var doLiveAutocomplete = function(e) {
     var line = editor.session.getLine(pos.row);
     var hasCompleter = editor.completer && editor.completer.activated;
     var prefix = util.retrievePrecedingIdentifier(line, pos.column);
+    completers.forEach(function(completer){
+        if(completer.identifierRegexprs){
+            console.log(completer.identifierRegexprs);
+            completer.identifierRegexprs.forEach(function(identifierRegex){
+                if(!prefix) {
+                  prefix = util.retrievePrecedingIdentifier(line, pos.column, identifierRegex);
+                }
+            });
+        }
+    });
     if (e.command.name === "backspace" && !prefix) {
         if (hasCompleter) 
             editor.completer.detach();

@@ -61,7 +61,8 @@ snippet fn\n\
 	${3:expr}\n\
 	};\n\
 snippet module\n\
-	module namespace ${1:ns} = \"${2:http://www.example.com}\";";
+	module namespace ${1:ns} = \"${2:http://www.example.com}\";\n\
+";
 exports.scope = "jsoniq";
 
 });

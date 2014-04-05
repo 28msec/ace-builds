@@ -122,6 +122,16 @@ var doLiveAutocomplete = function(e) {
     var line = editor.session.getLine(pos.row);
     var hasCompleter = editor.completer && editor.completer.activated;
     var prefix = util.retrievePrecedingIdentifier(line, pos.column);
+    completers.forEach(function(completer){
+        if(completer.identifierRegexprs){
+            console.log(completer.identifierRegexprs);
+            completer.identifierRegexprs.forEach(function(identifierRegex){
+                if(!prefix) {
+                  prefix = util.retrievePrecedingIdentifier(line, pos.column, identifierRegex);
+                }
+            });
+        }
+    });
     if (e.command.name === "backspace" && !prefix) {
         if (hasCompleter) 
             editor.completer.detach();
@@ -1178,7 +1188,7 @@ var Autocomplete = function() {
             var pos = editor.getCursorPosition();
             var line = session.getLine(pos.row);
             callback(null, {
-                prefix: util.retrievePrecedingIdentifier(line, pos.column),
+                    prefix: util.retrievePrecedingIdentifier(line, pos.column, results.length > 0 ? results[0].identifierRegex : undefined),
                     matches: matches,
                     finished: (--total === 0)
             });
@@ -1231,10 +1241,7 @@ var Autocomplete = function() {
                 if (!results.finished) return;
                 return this.detach();
             }.bind(this);
-            var session = this.editor.getSession();
-            var pos = this.editor.getCursorPosition();
-            var line = session.getLine(pos.row);
-            var prefix = util.retrievePrecedingIdentifier(line, pos.column);
+            var prefix = results.prefix;
             var matches = results && results.matches;
             if (!matches || !matches.length)
                 return this.detach();
