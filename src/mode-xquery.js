@@ -50,12 +50,13 @@ var Mode = function() {
 oop.inherits(Mode, TextMode);
 
 (function() {
+
     var uriRegex = /[a-zA-Z_0-9\/\.:\-#]/;
     var char = '-._A-Za-z0-9:\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02ff\u0300-\u037D\u037F-\u1FFF\u200C\u200D\u203f\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD';
     var nameChar = '[' + char + ']';
     var varChar = '[' + char + '\\$]';
     var nameCharRegExp = new RegExp(nameChar);
-    var varCharRegExp = new RegExp(varChar); 
+    var varCharRegExp = new RegExp(varChar);
     LanguageTools.addCompleter({
         identifierRegexprs: [uriRegex, nameCharRegExp, varCharRegExp],
         getCompletions: function(editor, session, pos, prefix, callback) {
@@ -3927,7 +3928,6 @@ var Autocomplete = function() {
             editor.completer.insertMatch();
         },
         "Shift-Return": function(editor) { editor.completer.insertMatch(true); },
-        "Tab": function(editor) { editor.completer.insertMatch(); },
 
         "PageUp": function(editor) { editor.completer.popup.gotoPageUp(); },
         "PageDown": function(editor) { editor.completer.popup.gotoPageDown(); }
@@ -4607,10 +4607,9 @@ var doLiveAutocomplete = function(e) {
     var prefix = util.retrievePrecedingIdentifier(line, pos.column);
     completers.forEach(function(completer){
         if(completer.identifierRegexprs){
-            console.log(completer.identifierRegexprs);
             completer.identifierRegexprs.forEach(function(identifierRegex){
                 if(!prefix) {
-                  prefix = util.retrievePrecedingIdentifier(line, pos.column, identifierRegex);
+                    prefix = util.retrievePrecedingIdentifier(line, pos.column, identifierRegex);
                 }
             });
         }

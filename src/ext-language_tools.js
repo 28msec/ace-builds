@@ -124,10 +124,9 @@ var doLiveAutocomplete = function(e) {
     var prefix = util.retrievePrecedingIdentifier(line, pos.column);
     completers.forEach(function(completer){
         if(completer.identifierRegexprs){
-            console.log(completer.identifierRegexprs);
             completer.identifierRegexprs.forEach(function(identifierRegex){
                 if(!prefix) {
-                  prefix = util.retrievePrecedingIdentifier(line, pos.column, identifierRegex);
+                    prefix = util.retrievePrecedingIdentifier(line, pos.column, identifierRegex);
                 }
             });
         }
@@ -1163,7 +1162,6 @@ var Autocomplete = function() {
             editor.completer.insertMatch();
         },
         "Shift-Return": function(editor) { editor.completer.insertMatch(true); },
-        "Tab": function(editor) { editor.completer.insertMatch(); },
 
         "PageUp": function(editor) { editor.completer.popup.gotoPageUp(); },
         "PageDown": function(editor) { editor.completer.popup.gotoPageDown(); }
