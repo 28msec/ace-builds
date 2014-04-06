@@ -181,31 +181,6 @@ var Mirror = require("../worker/mirror").Mirror;
 var XQLintLib = require("./xquery/xqlint");
 var XQLint =  XQLintLib.XQLint;
 
-var getModuleResolverFromModules = function(modules){
-    return function(uri){
-            var index = modules;
-            var mod = index[uri];
-            var variables = {};
-            var functions = {};
-            mod.functions.forEach(function(fn){
-                functions[uri + '#' + fn.name + '#' + fn.arity] = {
-                    params: []
-                };
-                fn.parameters.forEach(function(param){
-                    functions[uri + '#' + fn.name + '#' + fn.arity].params.push('$' + param.name);
-                });
-            });
-            mod.variables.forEach(function(variable){
-                var name = variable.name.substring(variable.name.indexOf(':') + 1);
-                variables[uri + '#' + name] = { type: 'VarDecl', annotations: [] };
-            });
-            return {
-                variables: variables,
-                functions: functions
-            };
-    };
-};
-
 var XQueryWorker = exports.XQueryWorker = function(sender) {
     Mirror.call(this, sender);
     this.setTimeout(200);
@@ -226,8 +201,8 @@ var XQueryWorker = exports.XQueryWorker = function(sender) {
         that.availableModuleNamespaces = e.data;
     });
 
-    this.sender.on("setModuleResolver", function(e){
-        that.moduleResolver = getModuleResolverFromModules(e.data);
+    this.sender.on("setModules", function(e){
+        that.modules = e.data;
     });
     
     this.sender.on("setFileName", function(e){
@@ -243,8 +218,8 @@ oop.inherits(XQueryWorker, Mirror);
         this.sender.emit("start");
         var value = this.doc.getValue();
         var sctx = XQLintLib.createStaticContext();
-        if(this.moduleResolver) {
-            sctx.setModuleResolver(this.moduleResolver);
+        if(this.modules) {
+            sctx.setModules(this.modules);
         }
         if(this.availableModuleNamespaces) {
             sctx.availableModuleNamespaces = this.availableModuleNamespaces;
@@ -1742,7 +1717,18 @@ var StaticWarning = {};
 StaticError.prototype = new Error();
 StaticWarning.prototype = new Error();
 
-exports.StaticError = StaticError.prototype.constructor = function(code, message, pos){
+exports.StaticError = StaticError.prototype.constructor = function(code, message, pos) {
+    if(!code) {
+        throw new Error('Error code is missing.');
+    }
+    
+    if(!message) {
+        throw new Error('Error message is missing.');
+    }
+    
+    if(!pos) {
+        throw new Error('Error position is missing.');
+    }
     this.getCode = function(){
         return code;
     };
@@ -1756,7 +1742,19 @@ exports.StaticError = StaticError.prototype.constructor = function(code, message
     };
 };
 
-exports.StaticWarning = StaticWarning.prototype.constructor = function(code, message, pos){
+exports.StaticWarning = StaticWarning.prototype.constructor = function(code, message, pos) {
+    if(!code) {
+        throw new Error('Warning code is missing.');
+    }
+    
+    if(!message) {
+        throw new Error('Warning message is missing.');
+    }
+    
+    if(!pos) {
+        throw new Error('Warning position is missing.');
+    }
+    
     this.getCode = function(){
         return code;
     };
@@ -1915,21 +1913,6 @@ exports.VarRefHandler = function(translator, sctx, node){
         }
     };
 };
-
-exports.FunctionCallHandler = function(translator, sctx, node, arity){
-    return {
-        EQName: function(eqname){
-            var value = TreeOps.flatten(eqname);
-            translator.apply(function(){
-                var qname = sctx.resolveQName(value, node.pos);
-                if(qname.uri !== '') {
-                    sctx.root.namespaces[qname.uri].used = true;
-                }
-                sctx.addFunctionCall(qname, arity, eqname.pos);
-            });
-        }
-    };
-};
 },
 {"../tree_ops":10,"./errors":1}],
 3:[function(_dereq_,module,exports){
@@ -2015,16 +1998,76 @@ exports.StaticContext = function (parent, pos) {
             this.root.moduleResolver = resolver;
             return this;
         },
+        setModules: function(index){
+            if(this !== this.root){
+                throw new Error('Function not invoked from the root static context.');
+            }
+            this.moduleResolver = function(uri){
+                return index[uri];
+            };
+            return this;
+        },
+        setModulesFromXQDoc: function(xqdoc){
+            if(this !== this.root){
+                throw new Error('Function not invoked from the root static context.');
+            }
+            var index = {};
+            Object.keys(xqdoc).forEach(function(uri) {
+                var mod = xqdoc[uri];
+                var variables = {};
+                var functions = {};
+                mod.functions.forEach(function(fn){
+                    functions[uri + '#' + fn.name + '#' + fn.arity] = {
+                        params: [],
+                        annotations: [],
+                        name: fn.name,
+                        arity: fn.arity,
+                        eqname: { uri: uri, name: fn.name }
+                    };
+                    fn.parameters.forEach(function(param){
+                        functions[uri + '#' + fn.name + '#' + fn.arity].params.push('$' + param.name);
+                    });
+                });
+                mod.variables.forEach(function(variable){
+                    var name = variable.name.substring(variable.name.indexOf(':') + 1);
+                    variables[uri + '#' + name] = { type: 'VarDecl', annotations: [], eqname: { uri: uri, name: name } };
+                });
+                index[uri] = {
+                    variables: variables,
+                    functions: functions
+                };
+            });
+            this.root.moduleResolver = function(uri){
+                return index[uri];
+            };
+            var that = this;
+            Object.keys(this.namespaces).forEach(function(uri){
+                var ns = that.namespaces[uri];
+                if(ns.type === 'module') {
+                    var mod = that.moduleResolver(uri);
+                    if(mod.variables) {
+                        TreeOps.concat(that.variables, mod.variables);
+                    }
+                    if(mod.functions) {
+                        TreeOps.concat(that.functions, mod.functions);
+                    }
+                }
+            });
+            return this;
+        },
         moduleNamespace: '',
-        defaultFunctionNamespace: '',
+        defaultFunctionNamespace: 'http://www.w3.org/2005/xpath-functions',
         defaultElementNamespace: '',
         namespaces: namespaces,
         availableModuleNamespaces: [],
         importModule: function(uri, prefix, pos) {
-            this.root.addNamespace(uri, prefix, pos, 'module');
-            if(this.root.moduleResolver) {
+            if(this !== this.root){
+                throw new Error('Function not invoked from the root static context.');
+            }
+            this.addNamespace(uri, prefix, pos, 'module');
+            if(this.moduleResolver) {
                 try {
-                    var mod = this.root.moduleResolver(uri, []);
+                    var mod = this.moduleResolver(uri, []);
                     if(mod.variables) {
                         TreeOps.concat(this.variables, mod.variables);
                     }
@@ -2032,7 +2075,7 @@ exports.StaticContext = function (parent, pos) {
                         TreeOps.concat(this.functions, mod.functions);
                     }
                 } catch(e) {
-                    throw new StaticError('XQST0059', 'module "' + uri + '" not found: ' + e, pos);
+                    throw new StaticError('XQST0059', 'module "' + uri + '" not found', pos);
                 }
             }
             return this;
@@ -2123,7 +2166,7 @@ exports.StaticContext = function (parent, pos) {
                 idx = value.indexOf(':');
                 qname.prefix = value.substring(0, idx);
                 var namespace = this.getNamespaceByPrefix(qname.prefix);
-                if(!namespace && qname.prefix !== '') {
+                if(!namespace && qname.prefix !== '' && ['fn', 'jn'].indexOf(qname.prefix) === -1) {
                     throw new StaticError('XPST0081', '"' + qname.prefix + '": can not expand prefix of lexical QName to namespace URI', pos);
                 }
                 if(namespace) {
@@ -2194,9 +2237,16 @@ exports.StaticContext = function (parent, pos) {
         },
         
         addFunctionCall: function(qname, arity, pos){
+            if(qname.uri === '') {
+                qname.uri = this.root.defaultFunctionNamespace;
+            }
             var fn = this.getFunction(qname, arity);
             if(!fn && (qname.uri === 'http://www.w3.org/2005/xquery-local-functions' || this.root.moduleResolver)){
-                throw new StaticError('XPST0008', '"' + qname.name + '#' + arity + '": undeclared function', pos);
+                qname.uri = 'http://jsoniq.org/functions';
+                fn = this.getFunction(qname, arity);
+                if(!fn) {
+                    throw new StaticError('XPST0008', '"' + qname.name + '#' + arity + '": undeclared function', pos);
+                }
             }
             var key = getFnKey(qname, arity);
             this.functionCalls[key] = true;
@@ -2551,6 +2601,7 @@ exports.Translator = function(rootStcx, ast){
         pushSctx(node.pos);
         clauses[clauses.length - 1]++;
         this.visitChildren(node, Handlers.VarHandler(translator, sctx, node));
+        return true;
     };
 
     this.GroupingSpec = function(node){
@@ -2658,15 +2709,21 @@ exports.Translator = function(rootStcx, ast){
     };
     
     this.FunctionCall = function(node){
-        try {
-            var eqname = translator.getFirstChild(node, 'EQName');
-            eqname = TreeOps.flatten(eqname);
-            var qname = rootStcx.resolveQName(eqname, node.pos);
-            rootStcx.namespaces[qname.uri].used = true;
-            var arity = get(node, ['ArgumentList', 'Argument']).length;
-            this.visitChildren(node, Handlers.FunctionCallHandler(translator, sctx, node, arity));
-        } catch(e) {
-        }
+        this.visitOnly(node, ['ArgumentList']);
+        var name = translator.getFirstChild(node, 'EQName');
+        var eqname = TreeOps.flatten(name);
+        var arity = get(node, ['ArgumentList', 'Argument']).length;
+        translator.apply(function(){
+            var qname = sctx.resolveQName(eqname, node.pos);
+            try {
+                if(qname.uri !== '') {
+                    sctx.root.namespaces[qname.uri].used = true;
+                }
+            } catch(e){
+            }
+            sctx.addFunctionCall(qname, arity, name.pos);
+        });
+        return true;
     };
 
     this.visit = function (node) {
