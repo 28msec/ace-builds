@@ -203,10 +203,12 @@ var XQueryWorker = exports.XQueryWorker = function(sender) {
 
     this.sender.on("setModules", function(e){
         that.modules = e.data;
+        that.onUpdate();
     });
     
     this.sender.on("setFileName", function(e){
         that.fileName = e.data;
+        that.onUpdate();
     });
 };
 
