@@ -2000,7 +2000,7 @@ exports.StaticContext = function (parent, pos) {
         },
         setModules: function(index){
             if(this !== this.root){
-                throw new Error('Function not invoked from the root static context.');
+                throw new Error('setModules() not invoked from the root static context.');
             }
             this.moduleResolver = function(uri){
                 return index[uri];
@@ -2009,7 +2009,7 @@ exports.StaticContext = function (parent, pos) {
         },
         setModulesFromXQDoc: function(xqdoc){
             if(this !== this.root){
-                throw new Error('Function not invoked from the root static context.');
+                throw new Error('setModulesFromXQDoc() not invoked from the root static context.');
             }
             var index = {};
             Object.keys(xqdoc).forEach(function(uri) {
@@ -2270,6 +2270,9 @@ exports.StaticContext = function (parent, pos) {
         },
         
         addFunction: function(qname, pos, params) {
+            if(this !== this.root){
+                throw new Error('addFunction() not invoked from the root static context.');
+            }
             var arity = params.length;
             if(
                 this.moduleNamespace !== '' &&
