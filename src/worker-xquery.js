@@ -2007,6 +2007,19 @@ exports.StaticContext = function (parent, pos) {
             this.moduleResolver = function(uri){
                 return index[uri];
             };
+            var that = this;
+            Object.keys(this.namespaces).forEach(function(uri){
+                var ns = that.namespaces[uri];
+                if(ns.type === 'module') {
+                    var mod = that.moduleResolver(uri);
+                    if(mod.variables) {
+                        TreeOps.concat(that.variables, mod.variables);
+                    }
+                    if(mod.functions) {
+                        TreeOps.concat(that.functions, mod.functions);
+                    }
+                }
+            });
             return this;
         },
         setModulesFromXQDoc: function(xqdoc){
@@ -2244,10 +2257,13 @@ exports.StaticContext = function (parent, pos) {
             }
             var fn = this.getFunction(qname, arity);
             if(!fn && (qname.uri === 'http://www.w3.org/2005/xquery-local-functions' || this.root.moduleResolver)){
-                qname.uri = 'http://jsoniq.org/functions';
-                fn = this.getFunction(qname, arity);
-                if(!fn) {
-                    throw new StaticError('XPST0008', '"' + qname.name + '#' + arity + '": undeclared function', pos);
+                if(qname.uri === 'http://www.w3.org/2005/xpath-functions' && qname.name === 'concat') {
+                } else {
+                    qname.uri = 'http://jsoniq.org/functions';
+                    fn = this.getFunction(qname, arity);
+                    if(!fn) {
+                        throw new StaticError('XPST0008', '"' + qname.name + '#' + arity + '": undeclared function', pos);
+                    }
                 }
             }
             var key = getFnKey(qname, arity);
@@ -2876,7 +2892,7 @@ var completePrefix = function(identifier, pos, sctx){
         var prefixes = [];
         var namespaces = sctx.getNamespaces();
         Object.keys(namespaces).forEach(function(key){
-            if(namespaces[key].type === 'module') {
+            if(namespaces[key].type === 'module' || key === 'http://www.w3.org/2005/xquery-local-functions') {
                 prefixes.push(namespaces[key].prefix);
             }
         });
@@ -2902,6 +2918,7 @@ var completeFunction = function(identifier, pos, sctx){
     var prefix = '';
     var name = identifier;
     var idx = identifier.indexOf(':');
+    var defaultNamespace = false;
     if(idx !== -1){
         prefix = identifier.substring(0, idx);
         name = identifier.substring(idx + 1);
@@ -2909,13 +2926,19 @@ var completeFunction = function(identifier, pos, sctx){
         if(ns){
             uri = sctx.getNamespaceByPrefix(prefix).uri;
         }
+    } else {
+        defaultNamespace = true;
+        uri = sctx.root.defaultFunctionNamespace;
     }
     Object.keys(functions).forEach(function(key){
         var fn = functions[key];
         var ns = key.substring(0, key.indexOf('#'));
         var name = key.substring(key.indexOf('#') + 1);
         name = name.substring(0, name.indexOf('#'));
-        if(ns !== ''){
+        if(ns !== uri) {
+            return;
+        }
+        if(!defaultNamespace){
             name = sctx.getNamespaces()[ns].prefix + ':' + name;
         }
         name += '(';
