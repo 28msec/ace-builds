@@ -2229,7 +2229,7 @@ exports.StaticContext = function (parent, pos) {
         
         addVarRef: function(qname, pos){
             var varDecl = this.getVariable(qname);
-            if(!varDecl && (qname.uri === '' || this.root.moduleResolver)) {
+            if(!varDecl && (qname.uri === '' || this.root.moduleResolver) && qname.uri !== 'http://www.w3.org/2005/xqt-errors') {
                 throw new StaticError('XPST0008', '"' + qname.name + '": undeclared variable', pos);
             }
             var key = getVarKey(qname);
@@ -2726,6 +2726,20 @@ exports.Translator = function(rootStcx, ast){
             }
             sctx.addFunctionCall(qname, arity, name.pos);
         });
+        return true;
+    };
+    
+    this.TryClause = function(node){
+        pushSctx(node.pos);
+        this.visitChildren(node);
+        popSctx();
+        return true;
+    };
+    
+    this.CatchClause = function(node){
+        pushSctx(node.pos);
+        this.visitChildren(node);
+        popSctx();
         return true;
     };
 
