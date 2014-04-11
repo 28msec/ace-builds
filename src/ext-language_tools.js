@@ -79,7 +79,7 @@ var expandSnippet = {
         if (!success)
             editor.execCommand("indent");
     },
-    bindKey: "tab"
+    bindKey: "Tab"
 };
 
 var onChangeMode = function(e, editor) {
@@ -122,10 +122,10 @@ var doLiveAutocomplete = function(e) {
     var line = editor.session.getLine(pos.row);
     var hasCompleter = editor.completer && editor.completer.activated;
     var prefix = util.retrievePrecedingIdentifier(line, pos.column);
-    completers.forEach(function(completer){
-        if(completer.identifierRegexprs){
-            completer.identifierRegexprs.forEach(function(identifierRegex){
-                if(!prefix) {
+    completers.forEach(function(completer) {
+        if (completer.identifierRegexps) {
+            completer.identifierRegexps.forEach(function(identifierRegex){
+                if (!prefix) {
                     prefix = util.retrievePrecedingIdentifier(line, pos.column, identifierRegex);
                 }
             });
@@ -139,6 +139,7 @@ var doLiveAutocomplete = function(e) {
         if (prefix && !hasCompleter) {
             if (!editor.completer) {
                 editor.completer = new Autocomplete();
+                editor.completer.autoSelect = false;
                 editor.completer.autoInsert = false;
             }
             editor.completer.showPopup(editor);
@@ -422,8 +423,11 @@ var SnippetManager = function() {
     this.insertSnippet = function(editor, snippetText) {
         var cursor = editor.getCursorPosition();
         var line = editor.session.getLine(cursor.row);
-        var indentString = line.match(/^\s*/)[0];
         var tabString = editor.session.getTabString();
+        var indentString = line.match(/^\s*/)[0];
+        
+        if (cursor.column < indentString.length)
+            indentString = indentString.slice(0, cursor.column);
 
         var tokens = this.tokenizeTmSnippet(snippetText);
         tokens = this.resolveVariables(tokens, editor);
@@ -527,7 +531,7 @@ var SnippetManager = function() {
         var scope = editor.session.$mode.$id || "";
         scope = scope.split("/").pop();
         if (scope === "html" || scope === "php") {
-            if (scope === "php") 
+            if (scope === "php" && !editor.session.$mode.inlinePhp) 
                 scope = "html";
             var c = editor.getCursorPosition()
             var state = editor.session.getState(c.row);
@@ -1039,6 +1043,7 @@ var Autocomplete = function() {
             this.insertMatch();
             e.stop();
         }.bind(this));
+        this.popup.focus = this.editor.focus.bind(this.editor);
     };
 
     this.openPopup = function(editor, prefix, keepPopupPosition) {
@@ -1098,7 +1103,8 @@ var Autocomplete = function() {
     };
 
     this.blurListener = function() {
-        if (document.activeElement != this.editor.textInput.getElement())
+        var el = document.activeElement;
+        if (el != this.editor.textInput.getElement() && el.parentNode != this.popup.container)
             this.detach();
     };
 
@@ -1115,7 +1121,7 @@ var Autocomplete = function() {
         var max = this.popup.session.getLength() - 1;
 
         switch(where) {
-            case "up": row = row < 0 ? max : row - 1; break;
+            case "up": row = row <= 0 ? max : row - 1; break;
             case "down": row = row >= max ? -1 : row + 1; break;
             case "start": row = 0; break;
             case "end": row = max; break;
@@ -1156,12 +1162,15 @@ var Autocomplete = function() {
 
         "Esc": function(editor) { editor.completer.detach(); },
         "Space": function(editor) { editor.completer.detach(); editor.insert(" ");},
-        "Return": function(editor) {
-            if (editor.completer.popup.getRow() == -1)
-                return false;
-            editor.completer.insertMatch();
-        },
+        "Return": function(editor) { return editor.completer.insertMatch(); },
         "Shift-Return": function(editor) { editor.completer.insertMatch(true); },
+        "Tab": function(editor) {
+            var result = editor.completer.insertMatch();
+            if (!result && !editor.tabstopManager)
+                editor.completer.goTo("down");
+            else
+                return result;
+        },
 
         "PageUp": function(editor) { editor.completer.popup.gotoPageUp(); },
         "PageDown": function(editor) { editor.completer.popup.gotoPageDown(); }
@@ -1183,14 +1192,14 @@ var Autocomplete = function() {
             completer.getCompletions(editor, session, pos, prefix, function(err, results) {
                 if (!err)
                     matches = matches.concat(results);
-            var pos = editor.getCursorPosition();
-            var line = session.getLine(pos.row);
-            callback(null, {
-                    prefix: util.retrievePrecedingIdentifier(line, pos.column, results.length > 0 ? results[0].identifierRegex : undefined),
+                var pos = editor.getCursorPosition();
+                var line = session.getLine(pos.row);
+                callback(null, {
+                    prefix: util.retrievePrecedingIdentifier(line, pos.column, results[0] && results[0].identifierRegex),
                     matches: matches,
                     finished: (--total === 0)
+                });
             });
-        });
         });
         return true;
     };
@@ -1239,11 +1248,10 @@ var Autocomplete = function() {
                 if (!results.finished) return;
                 return this.detach();
             }.bind(this);
+
             var prefix = results.prefix;
             var matches = results && results.matches;
-            if (!matches || !matches.length)
-                return this.detach();
-
+            
             if (!matches || !matches.length)
                 return doDetach();
             if (prefix.indexOf(results.prefix) != 0 || _id != this.gatherCompletionsId)
@@ -1280,6 +1288,8 @@ Autocomplete.startCommand = {
     exec: function(editor) {
         if (!editor.completer)
             editor.completer = new Autocomplete();
+        editor.completer.autoInsert = 
+        editor.completer.autoSelect = true;
         editor.completer.showPopup(editor);
         editor.completer.cancelContextMenu();
     },
@@ -1744,8 +1754,3 @@ define('ace/autocomplete/text_completer', ['require', 'exports', 'module' , 'ace
         }));
     };
 });
-;
-                (function() {
-                    window.require(["ace/ext/language_tools"], function() {});
-                })();
-            
