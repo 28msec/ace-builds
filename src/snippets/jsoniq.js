@@ -1,9 +1,22 @@
 define('ace/snippets/jsoniq', ['require', 'exports', 'module' ], function(require, exports, module) {
 
 
-exports.snippetText = "snippet for\n\
+exports.snippetText = "snippet declare\n\
+guard ^\n\
+	declare $0\n\
+	\n\
+\n\
+snippet function\n\
+guard [\\s,\\(]|^\n\
+	function ${1:ns}:${2:name}(${3:arguments}){\n\
+	${4:expr}\n\
+	};\n\
+	$0\n\
+\n\
+snippet for\n\
 guard [\\s,\\(]|^\n\
 	for $${1:item} in ${2:expr}\n\
+	$0\n\
 \n\
 snippet return\n\
 guard [\\s,\\(]|^\n\
@@ -12,6 +25,7 @@ guard [\\s,\\(]|^\n\
 snippet import\n\
 guard ^\n\
 	import module namespace ${1:ns} = \"${2}\";\n\
+	$0\n\
 \n\
 snippet some\n\
 guard [\\s,\\(]|^\n\
@@ -23,7 +37,10 @@ guard [\\s,\\(]|^\n\
 \n\
 snippet if\n\
 guard [\\s,\\(]|^\n\
-	if(${1:true}) then ${2:expr} else ${3:true}\n\
+	if(${1:true}) then\n\
+	    ${2:expr}\n\
+	else\n\
+	    ${3:true}\n\
 \n\
 snippet switch\n\
 guard [\\s,\\(]|^\n\
@@ -34,7 +51,11 @@ guard [\\s,\\(]|^\n\
 \n\
 snippet try\n\
 guard [\\s,\\(]|^\n\
-	try { ${1:expr} } catch ${2:*} { ${3:expr} }\n\
+	try {\n\
+	    ${1:expr}\n\
+	} catch ${2:*} {\n\
+	    ${3:expr}\n\
+	}\n\
 \n\
 snippet tumbling\n\
 guard [\\s,\\(]|^\n\
@@ -53,30 +74,35 @@ guard [\\s,\\(]|^\n\
 snippet let\n\
 guard [\\s,\\(]|^\n\
 	let $${1:varname} := ${2:expr}\n\
+	$0\n\
 \n\
 snippet group\n\
 guard [\\s,\\(]|^\n\
 	group by $${1:varname} := ${2:expr}\n\
+	$0\n\
 \n\
 snippet order\n\
 guard [\\s,\\(]|^\n\
 	order by ${1:expr} ${2:descending}\n\
+	$0\n\
 \n\
 snippet stable\n\
 guard [\\s,\\(]|^\n\
 	stable order by ${1:expr}\n\
+	$0\n\
 \n\
 snippet count\n\
 guard [\\s,\\(]|^\n\
 	count $${1:varname}\n\
+	$0\n\
 \n\
 snippet ordered\n\
 guard [\\s,\\(]|^\n\
 	ordered { ${1:expr} }\n\
 \n\
 snippet unordered\n\
-	unordered { ${1:expr} }\n\
 guard [\\s,\\(]|^\n\
+	unordered { ${1:expr} }\n\
 \n\
 snippet treat\n\
 guard [\\s,\\(]|^\n\
@@ -100,7 +126,7 @@ snippet var\n\
 guard [\\s,\\(]|^\n\
 	declare variable $${1:varname} := ${2:expr};\n\
 \n\
-snippet fun\n\
+snippet fn\n\
 guard [\\s,\\(]|^\n\
 	declare function ${1:ns}:${2:name}(${3:arguments}){\n\
 	${4:expr}\n\
@@ -110,7 +136,7 @@ guard [\\s,\\(]|^\n\
 snippet module\n\
 guard ^\n\
 	module namespace ${1:ns} = \"${2:http://www.example.com}\";\n\
-";
+	$0";
 exports.scope = "jsoniq";
 
 });
