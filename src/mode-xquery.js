@@ -3756,7 +3756,7 @@ var TabstopManager = function(editor) {
     };
     this.updateLinkedFields = function() {
         var ts = this.selectedTabstop;
-        if (!ts.hasLinkedRanges)
+        if (!ts || !ts.hasLinkedRanges)
             return;
         this.$inChange = true;
         var session = this.editor.session;

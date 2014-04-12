@@ -3296,10 +3296,7 @@ var completeFunction = function(identifier, pos, sctx){
         var ns = key.substring(0, key.indexOf('#'));
         var name = key.substring(key.indexOf('#') + 1);
         name = name.substring(0, name.indexOf('#'));
-        if(ns !== uri) {
-            return;
-        }
-        if(!defaultNamespace){
+        if(!defaultNamespace || ns !== uri){
             name = sctx.getNamespaces()[ns].prefix + ':' + name;
         }
         name += '(';
