@@ -3296,7 +3296,10 @@ var completeFunction = function(identifier, pos, sctx){
         var ns = key.substring(0, key.indexOf('#'));
         var name = key.substring(key.indexOf('#') + 1);
         name = name.substring(0, name.indexOf('#'));
-        if(!defaultNamespace || ns !== uri){
+        if(ns !== uri) {
+            return;
+        }
+        if(!defaultNamespace){
             name = sctx.getNamespaces()[ns].prefix + ':' + name;
         }
         name += '(';
@@ -3314,7 +3317,7 @@ var completeFunction = function(identifier, pos, sctx){
     var match = function(name) {
         return {
             name: name,
-            value: idx !== -1 ? name.substring(name.indexOf(':') + 1) : name,
+            value: name,
             meta: 'function',
             priority: 4,
             identifierRegex: nameCharRegExp,
@@ -3400,7 +3403,6 @@ exports.complete = function(source, ast, rootSctx, pos){
         return completeExpr(line, pos, sctx);
     }
 };
-
 },
 {"../tree_ops":10}],
 6:[function(_dereq_,module,exports){
