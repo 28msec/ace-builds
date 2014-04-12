@@ -3314,7 +3314,7 @@ var completeFunction = function(identifier, pos, sctx){
     var match = function(name) {
         return {
             name: name,
-            value: name,
+            value: idx !== -1 ? name.substring(name.indexOf(':') + 1) : name,
             meta: 'function',
             priority: 4,
             identifierRegex: nameCharRegExp,
