@@ -16,7 +16,6 @@ guard [\\s,\\(]|^\n\
 snippet for\n\
 guard [\\s,\\(]|^\n\
 	for $${1:item} in ${2:expr}\n\
-	$0\n\
 \n\
 snippet return\n\
 guard [\\s,\\(]|^\n\
@@ -74,27 +73,22 @@ guard [\\s,\\(]|^\n\
 snippet let\n\
 guard [\\s,\\(]|^\n\
 	let $${1:varname} := ${2:expr}\n\
-	$0\n\
 \n\
 snippet group\n\
 guard [\\s,\\(]|^\n\
 	group by $${1:varname} := ${2:expr}\n\
-	$0\n\
 \n\
 snippet order\n\
 guard [\\s,\\(]|^\n\
 	order by ${1:expr} ${2:descending}\n\
-	$0\n\
 \n\
 snippet stable\n\
 guard [\\s,\\(]|^\n\
 	stable order by ${1:expr}\n\
-	$0\n\
 \n\
 snippet count\n\
 guard [\\s,\\(]|^\n\
 	count $${1:varname}\n\
-	$0\n\
 \n\
 snippet ordered\n\
 guard [\\s,\\(]|^\n\
@@ -115,12 +109,6 @@ guard [\\s,\\(]|^\n\
 snippet cast\n\
 guard [\\s,\\(]|^\n\
 	cast as ${1:atomicType}\n\
-\n\
-snippet typeswitch\n\
-guard [\\s,\\(]|^\n\
-	typeswitch(${1:expr})\n\
-	case ${2:type}  return ${3:expr}\n\
-	default return ${4:expr}\n\
 \n\
 snippet var\n\
 guard [\\s,\\(]|^\n\

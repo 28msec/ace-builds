@@ -110,12 +110,6 @@ snippet cast\n\
 guard [\\s,\\(]|^\n\
 	cast as ${1:atomicType}\n\
 \n\
-snippet typeswitch\n\
-guard [\\s,\\(]|^\n\
-	typeswitch(${1:expr})\n\
-	case ${2:type}  return ${3:expr}\n\
-	default return ${4:expr}\n\
-\n\
 snippet var\n\
 guard [\\s,\\(]|^\n\
 	declare variable $${1:varname} := ${2:expr};\n\
