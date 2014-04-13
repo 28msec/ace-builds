@@ -27,7 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * ***** END LICENSE BLOCK ***** */
-define('ace/mode/xquery', ['require', 'exports', 'module' , 'ace/worker/worker_client', 'ace/lib/oop', 'ace/mode/text', 'ace/mode/text_highlight_rules', 'ace/mode/xquery/xquery_lexer', 'ace/range', 'ace/mode/behaviour/xquery', 'ace/mode/folding/cstyle', 'ace/anchor', 'ace/autocomplete/util', 'ace/ext/language_tools', 'ace/snippets'], function(require, exports, module) {
+define('ace/mode/xquery', ['require', 'exports', 'module' , 'ace/worker/worker_client', 'ace/lib/oop', 'ace/mode/text', 'ace/mode/text_highlight_rules', 'ace/mode/xquery/xquery_lexer', 'ace/range', 'ace/mode/behaviour/xquery', 'ace/mode/folding/cstyle', 'ace/anchor', 'ace/ext/language_tools', 'ace/autocomplete/util', 'ace/snippets'], function(require, exports, module) {
 
 
 var WorkerClient = require("../worker/worker_client").WorkerClient;
@@ -39,8 +39,8 @@ var Range = require("../range").Range;
 var XQueryBehaviour = require("./behaviour/xquery").XQueryBehaviour;
 var CStyleFoldMode = require("./folding/cstyle").FoldMode;
 var Anchor = require("../anchor").Anchor;
-var util = require("../autocomplete/util");
 var LanguageTools = require("../ext/language_tools");
+var util = require("../autocomplete/util");
 var snippetManager = require("../snippets").snippetManager;
 
 var Mode = function() {
@@ -2974,51 +2974,6 @@ oop.inherits(FoldMode, BaseFoldMode);
 
 });
 
-define('ace/autocomplete/util', ['require', 'exports', 'module' ], function(require, exports, module) {
-
-
-exports.parForEach = function(array, fn, callback) {
-    var completed = 0;
-    var arLength = array.length;
-    if (arLength === 0)
-        callback();
-    for (var i = 0; i < arLength; i++) {
-        fn(array[i], function(result, err) {
-            completed++;
-            if (completed === arLength)
-                callback(result, err);
-        });
-    }
-}
-
-var ID_REGEX = /[a-zA-Z_0-9\$-]/;
-
-exports.retrievePrecedingIdentifier = function(text, pos, regex) {
-    regex = regex || ID_REGEX;
-    var buf = [];
-    for (var i = pos-1; i >= 0; i--) {
-        if (regex.test(text[i]))
-            buf.push(text[i]);
-        else
-            break;
-    }
-    return buf.reverse().join("");
-}
-
-exports.retrieveFollowingIdentifier = function(text, pos, regex) {
-    regex = regex || ID_REGEX;
-    var buf = [];
-    for (var i = pos; i < text.length; i++) {
-        if (regex.test(text[i]))
-            buf.push(text[i]);
-        else
-            break;
-    }
-    return buf;
-}
-
-});
-
 define('ace/ext/language_tools', ['require', 'exports', 'module' , 'ace/snippets', 'ace/autocomplete', 'ace/config', 'ace/autocomplete/util', 'ace/autocomplete/text_completer', 'ace/editor'], function(require, exports, module) {
 
 
@@ -4654,6 +4609,51 @@ dom.importCssString("\
 }");
 
 exports.AcePopup = AcePopup;
+
+});
+
+define('ace/autocomplete/util', ['require', 'exports', 'module' ], function(require, exports, module) {
+
+
+exports.parForEach = function(array, fn, callback) {
+    var completed = 0;
+    var arLength = array.length;
+    if (arLength === 0)
+        callback();
+    for (var i = 0; i < arLength; i++) {
+        fn(array[i], function(result, err) {
+            completed++;
+            if (completed === arLength)
+                callback(result, err);
+        });
+    }
+}
+
+var ID_REGEX = /[a-zA-Z_0-9\$-]/;
+
+exports.retrievePrecedingIdentifier = function(text, pos, regex) {
+    regex = regex || ID_REGEX;
+    var buf = [];
+    for (var i = pos-1; i >= 0; i--) {
+        if (regex.test(text[i]))
+            buf.push(text[i]);
+        else
+            break;
+    }
+    return buf.reverse().join("");
+}
+
+exports.retrieveFollowingIdentifier = function(text, pos, regex) {
+    regex = regex || ID_REGEX;
+    var buf = [];
+    for (var i = pos; i < text.length; i++) {
+        if (regex.test(text[i]))
+            buf.push(text[i]);
+        else
+            break;
+    }
+    return buf;
+}
 
 });
 

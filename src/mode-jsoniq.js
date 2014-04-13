@@ -27,7 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * ***** END LICENSE BLOCK ***** */
-define('ace/mode/jsoniq', ['require', 'exports', 'module' , 'ace/worker/worker_client', 'ace/lib/oop', 'ace/mode/text', 'ace/mode/text_highlight_rules', 'ace/mode/xquery/jsoniq_lexer', 'ace/range', 'ace/mode/behaviour/xquery', 'ace/mode/folding/cstyle', 'ace/anchor', 'ace/ext/language_tools'], function(require, exports, module) {
+define('ace/mode/jsoniq', ['require', 'exports', 'module' , 'ace/worker/worker_client', 'ace/lib/oop', 'ace/mode/text', 'ace/mode/text_highlight_rules', 'ace/mode/xquery/jsoniq_lexer', 'ace/range', 'ace/mode/behaviour/xquery', 'ace/mode/folding/cstyle', 'ace/anchor', 'ace/ext/language_tools', 'ace/autocomplete/util', 'ace/snippets'], function(require, exports, module) {
 
 
 var WorkerClient = require("../worker/worker_client").WorkerClient;
@@ -40,6 +40,8 @@ var XQueryBehaviour = require("./behaviour/xquery").XQueryBehaviour;
 var CStyleFoldMode = require("./folding/cstyle").FoldMode;
 var Anchor = require("../anchor").Anchor;
 var LanguageTools = require("../ext/language_tools");
+var util = require("../autocomplete/util");
+var snippetManager = require("../snippets").snippetManager;
 
 var Mode = function() {
     this.$tokenizer   = new JSONiqLexer();
@@ -63,6 +65,24 @@ oop.inherits(Mode, TextMode);
         getCompletions: function(editor, session, pos, prefix, callback) {
             session.$worker.emit("complete", { data: { pos: pos, prefix: prefix } });
             session.$worker.on("complete", function(e){
+                e.data.forEach(function(proposal){
+                    proposal.completer = {
+                        insertMatch: function(editor){
+                            var pos = editor.getCursorPosition();
+                            var prefix = util.retrievePrecedingIdentifier(editor.session.getLine(pos.row), pos.column, proposal.identifierRegex);
+                            var ranges = editor.selection.getAllRanges();
+                            for (var i = 0, range; range = ranges[i]; i++) {
+                                range.start.column -= prefix.length;
+                                editor.session.remove(range);
+                            }
+                            if(proposal.snippet) {
+                                snippetManager.insertSnippet(editor, proposal.snippet);
+                            } else {
+                                editor.insert(proposal.value);
+                            }
+                        }
+                    };
+                });
                 callback(null, e.data);
             });
         }

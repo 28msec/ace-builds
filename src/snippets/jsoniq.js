@@ -41,13 +41,6 @@ guard [\\s,\\(]|^\n\
 	else\n\
 	    ${3:true}\n\
 \n\
-snippet switch\n\
-guard [\\s,\\(]|^\n\
-	switch(${1:\"foo\"})\n\
-	case ${2:\"foo\"}\n\
-	return ${3:true}\n\
-	default return ${4:false}\n\
-\n\
 snippet try\n\
 guard [\\s,\\(]|^\n\
 	try {\n\
