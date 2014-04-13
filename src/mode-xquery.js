@@ -67,6 +67,7 @@ oop.inherits(Mode, TextMode);
                 e.data.forEach(function(proposal){
                     proposal.completer = {
                         insertMatch: function(editor){
+                            var pos = editor.getCursorPosition();
                             var prefix = util.retrievePrecedingIdentifier(editor.session.getLine(pos.row), pos.column, proposal.identifierRegex);
                             var ranges = editor.selection.getAllRanges();
                             for (var i = 0, range; range = ranges[i]; i++) {
