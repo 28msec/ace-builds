@@ -103,9 +103,10 @@ snippet cast\n\
 guard [\\s,\\(]|^\n\
 	cast as ${1:atomicType}\n\
 \n\
-snippet var\n\
+snippet variable\n\
 guard [\\s,\\(]|^\n\
-	declare variable $${1:varname} := ${2:expr};\n\
+	variable $${1:varname} := ${2:expr};\n\
+	$0\n\
 \n\
 snippet fn\n\
 guard [\\s,\\(]|^\n\
