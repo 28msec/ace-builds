@@ -2680,7 +2680,11 @@ exports.StaticContext = function (parent, pos) {
                     qname.uri = 'http://jsoniq.org/functions';
                     fn = this.getFunction(qname, arity);
                     if(!fn) {
-                        throw new StaticError('XPST0008', '"' + qname.name + '#' + arity + '": undeclared function', pos);
+                        qname.uri = 'http://www.w3.org/2001/XMLSchema';
+                        fn = this.getFunction(qname, arity);
+                        if(!fn){
+                            throw new StaticError('XPST0008', '"' + qname.name + '#' + arity + '": undeclared function', pos);
+                        }
                     }
                 }
             }
@@ -2725,6 +2729,7 @@ exports.StaticContext = function (parent, pos) {
     s.root = parent ? parent.root : s;
     return s;
 };
+
 },
 {"../tree_ops":11,"./errors":1,"./schema_built-in_types":3}],
 5:[function(_dereq_,module,exports){
