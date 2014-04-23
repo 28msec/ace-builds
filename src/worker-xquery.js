@@ -2363,6 +2363,24 @@ exports.StaticContext = function (parent, pos) {
             type: 'module',
             override: true
         };
+        namespaces['http://www.28msec.com/modules/collections'] = {
+            prefix: 'db',
+            pos: emptyPos,
+            type: 'module',
+            override: true
+        };
+        namespaces['http://www.28msec.com/modules/store'] = {
+            prefix: 'store',
+            pos: emptyPos,
+            type: 'module',
+            override: true
+        };
+        namespaces['http://jsoniq.org/function-library'] = {
+            prefix: 'libjn',
+            pos: emptyPos,
+            type: 'module',
+            override: true
+        };
         namespaces['http://www.w3.org/2005/xpath-functions'] = {
             prefix: 'fn',
             pos: emptyPos,
@@ -2490,6 +2508,13 @@ exports.StaticContext = function (parent, pos) {
         },
         moduleNamespace: '',
         defaultFunctionNamespace: 'http://www.w3.org/2005/xpath-functions',
+        defaultFunctionNamespaces: [
+            'http://www.28msec.com/modules/collections',
+            'http://www.28msec.com/modules/store',
+            'http://jsoniq.org/functions',
+            'http://jsoniq.org/function-library',
+            'http://www.w3.org/2001/XMLSchema' //Built-in type constructors
+        ],
         defaultElementNamespace: '',
         namespaces: namespaces,
         availableModuleNamespaces: [],
@@ -2670,22 +2695,12 @@ exports.StaticContext = function (parent, pos) {
         },
         
         addFunctionCall: function(qname, arity, pos){
-            if(qname.uri === '') {
-                qname.uri = this.root.defaultFunctionNamespace;
-            }
             var fn = this.getFunction(qname, arity);
             if(!fn && (qname.uri === 'http://www.w3.org/2005/xquery-local-functions' || this.root.moduleResolver)){
-                if(qname.uri === 'http://www.w3.org/2005/xpath-functions' && qname.name === 'concat') {
-                } else {
-                    qname.uri = 'http://jsoniq.org/functions';
-                    fn = this.getFunction(qname, arity);
-                    if(!fn) {
-                        qname.uri = 'http://www.w3.org/2001/XMLSchema';
-                        fn = this.getFunction(qname, arity);
-                        if(!fn){
-                            throw new StaticError('XPST0008', '"' + qname.name + '#' + arity + '": undeclared function', pos);
-                        }
-                    }
+                if((qname.uri === 'http://www.w3.org/2005/xpath-functions' ||
+                    (qname.uri === '' && this.root.defaultFunctionNamespaces.concat(this.root.defaultFunctionNamespace).indexOf('http://www.w3.org/2005/xpath-functions') !== -1)) && qname.name === 'concat') {
+                } else if(!fn){
+                    throw new StaticError('XPST0008', '"' + qname.name + '#' + arity + '": undeclared function', pos);
                 }
             }
             var key = getFnKey(qname, arity);
@@ -2700,7 +2715,20 @@ exports.StaticContext = function (parent, pos) {
         
         getFunction: function(qname, arity){
             var key = getFnKey(qname, arity);
-            return this.root.functions[key];
+            var fn;
+            if(qname.uri === '') {
+                var that = this;
+                this.root.defaultFunctionNamespaces.concat([this.root.defaultFunctionNamespace]).forEach(function(defaultFunctionNamespace){
+                    if(!fn){
+                        fn = that.getFunction({ uri: defaultFunctionNamespace, prefix: qname.prefix, name: qname.name }, arity);
+                    } else {
+                        return false;
+                    }
+                });
+                return fn;
+            } else {
+                return this.root.functions[key];
+            }
         },
         
         addFunction: function(qname, pos, params) {
