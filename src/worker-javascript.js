@@ -171,7 +171,231 @@ window.onmessage = function(e) {
         sender._signal(msg.event, msg.data);
     }
 };
-})(this);// https://github.com/kriskowal/es5-shim
+})(this);
+
+define('ace/mode/javascript_worker', ['require', 'exports', 'module' , 'ace/lib/oop', 'ace/worker/mirror', 'ace/mode/javascript/jshint'], function(require, exports, module) {
+
+
+var oop = require("../lib/oop");
+var Mirror = require("../worker/mirror").Mirror;
+var lint = require("./javascript/jshint").JSHINT;
+
+function startRegex(arr) {
+    return RegExp("^(" + arr.join("|") + ")");
+}
+
+var disabledWarningsRe = startRegex([
+    "Bad for in variable '(.+)'.",
+    'Missing "use strict"'
+]);
+var errorsRe = startRegex([
+    "Unexpected",
+    "Expected ",
+    "Confusing (plus|minus)",
+    "\\{a\\} unterminated regular expression",
+    "Unclosed ",
+    "Unmatched ",
+    "Unbegun comment",
+    "Bad invocation",
+    "Missing space after",
+    "Missing operator at"
+]);
+var infoRe = startRegex([
+    "Expected an assignment",
+    "Bad escapement of EOL",
+    "Unexpected comma",
+    "Unexpected space",
+    "Missing radix parameter.",
+    "A leading decimal point can",
+    "\\['{a}'\\] is better written in dot notation.",
+    "'{a}' used out of scope"
+]);
+
+var JavaScriptWorker = exports.JavaScriptWorker = function(sender) {
+    Mirror.call(this, sender);
+    this.setTimeout(500);
+    this.setOptions();
+};
+
+oop.inherits(JavaScriptWorker, Mirror);
+
+(function() {
+    this.setOptions = function(options) {
+        this.options = options || {
+            esnext: true,
+            moz: true,
+            devel: true,
+            browser: true,
+            node: true,
+            laxcomma: true,
+            laxbreak: true,
+            lastsemic: true,
+            onevar: false,
+            passfail: false,
+            maxerr: 100,
+            expr: true,
+            multistr: true,
+            globalstrict: true
+        };
+        this.doc.getValue() && this.deferredUpdate.schedule(100);
+    };
+
+    this.changeOptions = function(newOptions) {
+        oop.mixin(this.options, newOptions);
+        this.doc.getValue() && this.deferredUpdate.schedule(100);
+    };
+
+    this.isValidJS = function(str) {
+        try {
+            eval("throw 0;" + str);
+        } catch(e) {
+            if (e === 0)
+                return true;
+        }
+        return false
+    };
+
+    this.onUpdate = function() {
+        var value = this.doc.getValue();
+        value = value.replace(/^#!.*\n/, "\n");
+        if (!value) {
+            this.sender.emit("jslint", []);
+            return;
+        }
+        var errors = [];
+        var maxErrorLevel = this.isValidJS(value) ? "warning" : "error";
+        lint(value, this.options);
+        var results = lint.errors;
+
+        var errorAdded = false
+        for (var i = 0; i < results.length; i++) {
+            var error = results[i];
+            if (!error)
+                continue;
+            var raw = error.raw;
+            var type = "warning";
+
+            if (raw == "Missing semicolon.") {
+                var str = error.evidence.substr(error.character);
+                str = str.charAt(str.search(/\S/));
+                if (maxErrorLevel == "error" && str && /[\w\d{(['"]/.test(str)) {
+                    error.reason = 'Missing ";" before statement';
+                    type = "error";
+                } else {
+                    type = "info";
+                }
+            }
+            else if (disabledWarningsRe.test(raw)) {
+                continue;
+            }
+            else if (infoRe.test(raw)) {
+                type = "info"
+            }
+            else if (errorsRe.test(raw)) {
+                errorAdded  = true;
+                type = maxErrorLevel;
+            }
+            else if (raw == "'{a}' is not defined.") {
+                type = "warning";
+            }
+            else if (raw == "'{a}' is defined but never used.") {
+                type = "info";
+            }
+
+            errors.push({
+                row: error.line-1,
+                column: error.character-1,
+                text: error.reason,
+                type: type,
+                raw: raw
+            });
+
+            if (errorAdded) {
+            }
+        }
+
+        this.sender.emit("jslint", errors);
+    };
+
+}).call(JavaScriptWorker.prototype);
+
+});
+
+define('ace/lib/oop', ['require', 'exports', 'module' ], function(require, exports, module) {
+
+
+exports.inherits = function(ctor, superCtor) {
+    ctor.super_ = superCtor;
+    ctor.prototype = Object.create(superCtor.prototype, {
+        constructor: {
+            value: ctor,
+            enumerable: false,
+            writable: true,
+            configurable: true
+        }
+    });
+};
+
+exports.mixin = function(obj, mixin) {
+    for (var key in mixin) {
+        obj[key] = mixin[key];
+    }
+    return obj;
+};
+
+exports.implement = function(proto, mixin) {
+    exports.mixin(proto, mixin);
+};
+
+});
+define('ace/worker/mirror', ['require', 'exports', 'module' , 'ace/document', 'ace/lib/lang'], function(require, exports, module) {
+
+
+var Document = require("../document").Document;
+var lang = require("../lib/lang");
+    
+var Mirror = exports.Mirror = function(sender) {
+    this.sender = sender;
+    var doc = this.doc = new Document("");
+    
+    var deferredUpdate = this.deferredUpdate = lang.delayedCall(this.onUpdate.bind(this));
+    
+    var _self = this;
+    sender.on("change", function(e) {
+        doc.applyDeltas(e.data);
+        if (_self.$timeout)
+            return deferredUpdate.schedule(_self.$timeout);
+        _self.onUpdate();
+    });
+};
+
+(function() {
+    
+    this.$timeout = 500;
+    
+    this.setTimeout = function(timeout) {
+        this.$timeout = timeout;
+    };
+    
+    this.setValue = function(value) {
+        this.doc.setValue(value);
+        this.deferredUpdate.schedule(this.$timeout);
+    };
+    
+    this.getValue = function(callbackId) {
+        this.sender.callback(this.doc.getValue(), callbackId);
+    };
+    
+    this.onUpdate = function() {
+    };
+    
+    this.isPending = function() {
+        return this.deferredUpdate.isPending();
+    };
+    
+}).call(Mirror.prototype);
+
+});
 
 define('ace/lib/es5-shim', ['require', 'exports', 'module' ], function(require, exports, module) {
 
@@ -868,589 +1092,6 @@ var toObject = function (o) {
     return Object(o);
 };
 
-});
-
-define('ace/mode/javascript_worker', ['require', 'exports', 'module' , 'ace/lib/oop', 'ace/worker/mirror', 'ace/mode/javascript/jshint'], function(require, exports, module) {
-
-
-var oop = require("../lib/oop");
-var Mirror = require("../worker/mirror").Mirror;
-var lint = require("./javascript/jshint").JSHINT;
-
-function startRegex(arr) {
-    return RegExp("^(" + arr.join("|") + ")");
-}
-
-var disabledWarningsRe = startRegex([
-    "Bad for in variable '(.+)'.",
-    'Missing "use strict"'
-]);
-var errorsRe = startRegex([
-    "Unexpected",
-    "Expected ",
-    "Confusing (plus|minus)",
-    "\\{a\\} unterminated regular expression",
-    "Unclosed ",
-    "Unmatched ",
-    "Unbegun comment",
-    "Bad invocation",
-    "Missing space after",
-    "Missing operator at"
-]);
-var infoRe = startRegex([
-    "Expected an assignment",
-    "Bad escapement of EOL",
-    "Unexpected comma",
-    "Unexpected space",
-    "Missing radix parameter.",
-    "A leading decimal point can",
-    "\\['{a}'\\] is better written in dot notation.",
-    "'{a}' used out of scope"
-]);
-
-var JavaScriptWorker = exports.JavaScriptWorker = function(sender) {
-    Mirror.call(this, sender);
-    this.setTimeout(500);
-    this.setOptions();
-};
-
-oop.inherits(JavaScriptWorker, Mirror);
-
-(function() {
-    this.setOptions = function(options) {
-        this.options = options || {
-            esnext: true,
-            moz: true,
-            devel: true,
-            browser: true,
-            node: true,
-            laxcomma: true,
-            laxbreak: true,
-            lastsemic: true,
-            onevar: false,
-            passfail: false,
-            maxerr: 100,
-            expr: true,
-            multistr: true,
-            globalstrict: true
-        };
-        this.doc.getValue() && this.deferredUpdate.schedule(100);
-    };
-
-    this.changeOptions = function(newOptions) {
-        oop.mixin(this.options, newOptions);
-        this.doc.getValue() && this.deferredUpdate.schedule(100);
-    };
-
-    this.isValidJS = function(str) {
-        try {
-            eval("throw 0;" + str);
-        } catch(e) {
-            if (e === 0)
-                return true;
-        }
-        return false
-    };
-
-    this.onUpdate = function() {
-        var value = this.doc.getValue();
-        value = value.replace(/^#!.*\n/, "\n");
-        if (!value) {
-            this.sender.emit("jslint", []);
-            return;
-        }
-        var errors = [];
-        var maxErrorLevel = this.isValidJS(value) ? "warning" : "error";
-        lint(value, this.options);
-        var results = lint.errors;
-
-        var errorAdded = false
-        for (var i = 0; i < results.length; i++) {
-            var error = results[i];
-            if (!error)
-                continue;
-            var raw = error.raw;
-            var type = "warning";
-
-            if (raw == "Missing semicolon.") {
-                var str = error.evidence.substr(error.character);
-                str = str.charAt(str.search(/\S/));
-                if (maxErrorLevel == "error" && str && /[\w\d{(['"]/.test(str)) {
-                    error.reason = 'Missing ";" before statement';
-                    type = "error";
-                } else {
-                    type = "info";
-                }
-            }
-            else if (disabledWarningsRe.test(raw)) {
-                continue;
-            }
-            else if (infoRe.test(raw)) {
-                type = "info"
-            }
-            else if (errorsRe.test(raw)) {
-                errorAdded  = true;
-                type = maxErrorLevel;
-            }
-            else if (raw == "'{a}' is not defined.") {
-                type = "warning";
-            }
-            else if (raw == "'{a}' is defined but never used.") {
-                type = "info";
-            }
-
-            errors.push({
-                row: error.line-1,
-                column: error.character-1,
-                text: error.reason,
-                type: type,
-                raw: raw
-            });
-
-            if (errorAdded) {
-            }
-        }
-
-        this.sender.emit("jslint", errors);
-    };
-
-}).call(JavaScriptWorker.prototype);
-
-});
-
-define('ace/lib/oop', ['require', 'exports', 'module' ], function(require, exports, module) {
-
-
-exports.inherits = function(ctor, superCtor) {
-    ctor.super_ = superCtor;
-    ctor.prototype = Object.create(superCtor.prototype, {
-        constructor: {
-            value: ctor,
-            enumerable: false,
-            writable: true,
-            configurable: true
-        }
-    });
-};
-
-exports.mixin = function(obj, mixin) {
-    for (var key in mixin) {
-        obj[key] = mixin[key];
-    }
-    return obj;
-};
-
-exports.implement = function(proto, mixin) {
-    exports.mixin(proto, mixin);
-};
-
-});
-define('ace/worker/mirror', ['require', 'exports', 'module' , 'ace/document', 'ace/lib/lang'], function(require, exports, module) {
-
-
-var Document = require("../document").Document;
-var lang = require("../lib/lang");
-    
-var Mirror = exports.Mirror = function(sender) {
-    this.sender = sender;
-    var doc = this.doc = new Document("");
-    
-    var deferredUpdate = this.deferredUpdate = lang.delayedCall(this.onUpdate.bind(this));
-    
-    var _self = this;
-    sender.on("change", function(e) {
-        doc.applyDeltas(e.data);
-        if (_self.$timeout)
-            return deferredUpdate.schedule(_self.$timeout);
-        _self.onUpdate();
-    });
-};
-
-(function() {
-    
-    this.$timeout = 500;
-    
-    this.setTimeout = function(timeout) {
-        this.$timeout = timeout;
-    };
-    
-    this.setValue = function(value) {
-        this.doc.setValue(value);
-        this.deferredUpdate.schedule(this.$timeout);
-    };
-    
-    this.getValue = function(callbackId) {
-        this.sender.callback(this.doc.getValue(), callbackId);
-    };
-    
-    this.onUpdate = function() {
-    };
-    
-    this.isPending = function() {
-        return this.deferredUpdate.isPending();
-    };
-    
-}).call(Mirror.prototype);
-
-});
-
-define('ace/document', ['require', 'exports', 'module' , 'ace/lib/oop', 'ace/lib/event_emitter', 'ace/range', 'ace/anchor'], function(require, exports, module) {
-
-
-var oop = require("./lib/oop");
-var EventEmitter = require("./lib/event_emitter").EventEmitter;
-var Range = require("./range").Range;
-var Anchor = require("./anchor").Anchor;
-
-var Document = function(text) {
-    this.$lines = [];
-    if (text.length === 0) {
-        this.$lines = [""];
-    } else if (Array.isArray(text)) {
-        this._insertLines(0, text);
-    } else {
-        this.insert({row: 0, column:0}, text);
-    }
-};
-
-(function() {
-
-    oop.implement(this, EventEmitter);
-    this.setValue = function(text) {
-        var len = this.getLength();
-        this.remove(new Range(0, 0, len, this.getLine(len-1).length));
-        this.insert({row: 0, column:0}, text);
-    };
-    this.getValue = function() {
-        return this.getAllLines().join(this.getNewLineCharacter());
-    };
-    this.createAnchor = function(row, column) {
-        return new Anchor(this, row, column);
-    };
-    if ("aaa".split(/a/).length === 0)
-        this.$split = function(text) {
-            return text.replace(/\r\n|\r/g, "\n").split("\n");
-        };
-    else
-        this.$split = function(text) {
-            return text.split(/\r\n|\r|\n/);
-        };
-
-
-    this.$detectNewLine = function(text) {
-        var match = text.match(/^.*?(\r\n|\r|\n)/m);
-        this.$autoNewLine = match ? match[1] : "\n";
-        this._signal("changeNewLineMode");
-    };
-    this.getNewLineCharacter = function() {
-        switch (this.$newLineMode) {
-          case "windows":
-            return "\r\n";
-          case "unix":
-            return "\n";
-          default:
-            return this.$autoNewLine || "\n";
-        }
-    };
-
-    this.$autoNewLine = "";
-    this.$newLineMode = "auto";
-    this.setNewLineMode = function(newLineMode) {
-        if (this.$newLineMode === newLineMode)
-            return;
-
-        this.$newLineMode = newLineMode;
-        this._signal("changeNewLineMode");
-    };
-    this.getNewLineMode = function() {
-        return this.$newLineMode;
-    };
-    this.isNewLine = function(text) {
-        return (text == "\r\n" || text == "\r" || text == "\n");
-    };
-    this.getLine = function(row) {
-        return this.$lines[row] || "";
-    };
-    this.getLines = function(firstRow, lastRow) {
-        return this.$lines.slice(firstRow, lastRow + 1);
-    };
-    this.getAllLines = function() {
-        return this.getLines(0, this.getLength());
-    };
-    this.getLength = function() {
-        return this.$lines.length;
-    };
-    this.getTextRange = function(range) {
-        if (range.start.row == range.end.row) {
-            return this.getLine(range.start.row)
-                .substring(range.start.column, range.end.column);
-        }
-        var lines = this.getLines(range.start.row, range.end.row);
-        lines[0] = (lines[0] || "").substring(range.start.column);
-        var l = lines.length - 1;
-        if (range.end.row - range.start.row == l)
-            lines[l] = lines[l].substring(0, range.end.column);
-        return lines.join(this.getNewLineCharacter());
-    };
-
-    this.$clipPosition = function(position) {
-        var length = this.getLength();
-        if (position.row >= length) {
-            position.row = Math.max(0, length - 1);
-            position.column = this.getLine(length-1).length;
-        } else if (position.row < 0)
-            position.row = 0;
-        return position;
-    };
-    this.insert = function(position, text) {
-        if (!text || text.length === 0)
-            return position;
-
-        position = this.$clipPosition(position);
-        if (this.getLength() <= 1)
-            this.$detectNewLine(text);
-
-        var lines = this.$split(text);
-        var firstLine = lines.splice(0, 1)[0];
-        var lastLine = lines.length == 0 ? null : lines.splice(lines.length - 1, 1)[0];
-
-        position = this.insertInLine(position, firstLine);
-        if (lastLine !== null) {
-            position = this.insertNewLine(position); // terminate first line
-            position = this._insertLines(position.row, lines);
-            position = this.insertInLine(position, lastLine || "");
-        }
-        return position;
-    };
-    this.insertLines = function(row, lines) {
-        if (row >= this.getLength())
-            return this.insert({row: row, column: 0}, "\n" + lines.join("\n"));
-        return this._insertLines(Math.max(row, 0), lines);
-    };
-    this._insertLines = function(row, lines) {
-        if (lines.length == 0)
-            return {row: row, column: 0};
-        while (lines.length > 0xF000) {
-            var end = this._insertLines(row, lines.slice(0, 0xF000));
-            lines = lines.slice(0xF000);
-            row = end.row;
-        }
-
-        var args = [row, 0];
-        args.push.apply(args, lines);
-        this.$lines.splice.apply(this.$lines, args);
-
-        var range = new Range(row, 0, row + lines.length, 0);
-        var delta = {
-            action: "insertLines",
-            range: range,
-            lines: lines
-        };
-        this._signal("change", { data: delta });
-        return range.end;
-    };
-    this.insertNewLine = function(position) {
-        position = this.$clipPosition(position);
-        var line = this.$lines[position.row] || "";
-
-        this.$lines[position.row] = line.substring(0, position.column);
-        this.$lines.splice(position.row + 1, 0, line.substring(position.column, line.length));
-
-        var end = {
-            row : position.row + 1,
-            column : 0
-        };
-
-        var delta = {
-            action: "insertText",
-            range: Range.fromPoints(position, end),
-            text: this.getNewLineCharacter()
-        };
-        this._signal("change", { data: delta });
-
-        return end;
-    };
-    this.insertInLine = function(position, text) {
-        if (text.length == 0)
-            return position;
-
-        var line = this.$lines[position.row] || "";
-
-        this.$lines[position.row] = line.substring(0, position.column) + text
-                + line.substring(position.column);
-
-        var end = {
-            row : position.row,
-            column : position.column + text.length
-        };
-
-        var delta = {
-            action: "insertText",
-            range: Range.fromPoints(position, end),
-            text: text
-        };
-        this._signal("change", { data: delta });
-
-        return end;
-    };
-    this.remove = function(range) {
-        if (!(range instanceof Range))
-            range = Range.fromPoints(range.start, range.end);
-        range.start = this.$clipPosition(range.start);
-        range.end = this.$clipPosition(range.end);
-
-        if (range.isEmpty())
-            return range.start;
-
-        var firstRow = range.start.row;
-        var lastRow = range.end.row;
-
-        if (range.isMultiLine()) {
-            var firstFullRow = range.start.column == 0 ? firstRow : firstRow + 1;
-            var lastFullRow = lastRow - 1;
-
-            if (range.end.column > 0)
-                this.removeInLine(lastRow, 0, range.end.column);
-
-            if (lastFullRow >= firstFullRow)
-                this._removeLines(firstFullRow, lastFullRow);
-
-            if (firstFullRow != firstRow) {
-                this.removeInLine(firstRow, range.start.column, this.getLine(firstRow).length);
-                this.removeNewLine(range.start.row);
-            }
-        }
-        else {
-            this.removeInLine(firstRow, range.start.column, range.end.column);
-        }
-        return range.start;
-    };
-    this.removeInLine = function(row, startColumn, endColumn) {
-        if (startColumn == endColumn)
-            return;
-
-        var range = new Range(row, startColumn, row, endColumn);
-        var line = this.getLine(row);
-        var removed = line.substring(startColumn, endColumn);
-        var newLine = line.substring(0, startColumn) + line.substring(endColumn, line.length);
-        this.$lines.splice(row, 1, newLine);
-
-        var delta = {
-            action: "removeText",
-            range: range,
-            text: removed
-        };
-        this._signal("change", { data: delta });
-        return range.start;
-    };
-    this.removeLines = function(firstRow, lastRow) {
-        if (firstRow < 0 || lastRow >= this.getLength())
-            return this.remove(new Range(firstRow, 0, lastRow + 1, 0));
-        return this._removeLines(firstRow, lastRow);
-    };
-
-    this._removeLines = function(firstRow, lastRow) {
-        var range = new Range(firstRow, 0, lastRow + 1, 0);
-        var removed = this.$lines.splice(firstRow, lastRow - firstRow + 1);
-
-        var delta = {
-            action: "removeLines",
-            range: range,
-            nl: this.getNewLineCharacter(),
-            lines: removed
-        };
-        this._signal("change", { data: delta });
-        return removed;
-    };
-    this.removeNewLine = function(row) {
-        var firstLine = this.getLine(row);
-        var secondLine = this.getLine(row+1);
-
-        var range = new Range(row, firstLine.length, row+1, 0);
-        var line = firstLine + secondLine;
-
-        this.$lines.splice(row, 2, line);
-
-        var delta = {
-            action: "removeText",
-            range: range,
-            text: this.getNewLineCharacter()
-        };
-        this._signal("change", { data: delta });
-    };
-    this.replace = function(range, text) {
-        if (!(range instanceof Range))
-            range = Range.fromPoints(range.start, range.end);
-        if (text.length == 0 && range.isEmpty())
-            return range.start;
-        if (text == this.getTextRange(range))
-            return range.end;
-
-        this.remove(range);
-        if (text) {
-            var end = this.insert(range.start, text);
-        }
-        else {
-            end = range.start;
-        }
-
-        return end;
-    };
-    this.applyDeltas = function(deltas) {
-        for (var i=0; i<deltas.length; i++) {
-            var delta = deltas[i];
-            var range = Range.fromPoints(delta.range.start, delta.range.end);
-
-            if (delta.action == "insertLines")
-                this.insertLines(range.start.row, delta.lines);
-            else if (delta.action == "insertText")
-                this.insert(range.start, delta.text);
-            else if (delta.action == "removeLines")
-                this._removeLines(range.start.row, range.end.row - 1);
-            else if (delta.action == "removeText")
-                this.remove(range);
-        }
-    };
-    this.revertDeltas = function(deltas) {
-        for (var i=deltas.length-1; i>=0; i--) {
-            var delta = deltas[i];
-
-            var range = Range.fromPoints(delta.range.start, delta.range.end);
-
-            if (delta.action == "insertLines")
-                this._removeLines(range.start.row, range.end.row - 1);
-            else if (delta.action == "insertText")
-                this.remove(range);
-            else if (delta.action == "removeLines")
-                this._insertLines(range.start.row, delta.lines);
-            else if (delta.action == "removeText")
-                this.insert(range.start, delta.text);
-        }
-    };
-    this.indexToPosition = function(index, startRow) {
-        var lines = this.$lines || this.getAllLines();
-        var newlineLength = this.getNewLineCharacter().length;
-        for (var i = startRow || 0, l = lines.length; i < l; i++) {
-            index -= lines[i].length + newlineLength;
-            if (index < 0)
-                return {row: i, column: index + lines[i].length + newlineLength};
-        }
-        return {row: l-1, column: lines[l-1].length};
-    };
-    this.positionToIndex = function(pos, startRow) {
-        var lines = this.$lines || this.getAllLines();
-        var newlineLength = this.getNewLineCharacter().length;
-        var index = 0;
-        var row = Math.min(pos.row, lines.length);
-        for (var i = startRow || 0; i < row; ++i)
-            index += lines[i].length + newlineLength;
-
-        return index + pos.column;
-    };
-
-}).call(Document.prototype);
-
-exports.Document = Document;
 });
 
 define('ace/lib/event_emitter', ['require', 'exports', 'module' ], function(require, exports, module) {
@@ -2188,11 +1829,12 @@ module.exports = {
   var previousUnderscore = root._;
   var breaker = {};
   var ArrayProto = Array.prototype, ObjProto = Object.prototype, FuncProto = Function.prototype;
-  var push             = ArrayProto.push,
-      slice            = ArrayProto.slice,
-      concat           = ArrayProto.concat,
-      toString         = ObjProto.toString,
-      hasOwnProperty   = ObjProto.hasOwnProperty;
+  var
+    push             = ArrayProto.push,
+    slice            = ArrayProto.slice,
+    concat           = ArrayProto.concat,
+    toString         = ObjProto.toString,
+    hasOwnProperty   = ObjProto.hasOwnProperty;
   var
     nativeForEach      = ArrayProto.forEach,
     nativeMap          = ArrayProto.map,
@@ -2219,29 +1861,29 @@ module.exports = {
   } else {
     root._ = _;
   }
-  _.VERSION = '1.4.4';
+  _.VERSION = '1.6.0';
   var each = _.each = _.forEach = function(obj, iterator, context) {
-    if (obj == null) return;
+    if (obj == null) return obj;
     if (nativeForEach && obj.forEach === nativeForEach) {
       obj.forEach(iterator, context);
     } else if (obj.length === +obj.length) {
-      for (var i = 0, l = obj.length; i < l; i++) {
+      for (var i = 0, length = obj.length; i < length; i++) {
         if (iterator.call(context, obj[i], i, obj) === breaker) return;
       }
     } else {
-      for (var key in obj) {
-        if (_.has(obj, key)) {
-          if (iterator.call(context, obj[key], key, obj) === breaker) return;
-        }
+      var keys = _.keys(obj);
+      for (var i = 0, length = keys.length; i < length; i++) {
+        if (iterator.call(context, obj[keys[i]], keys[i], obj) === breaker) return;
       }
     }
+    return obj;
   };
   _.map = _.collect = function(obj, iterator, context) {
     var results = [];
     if (obj == null) return results;
     if (nativeMap && obj.map === nativeMap) return obj.map(iterator, context);
     each(obj, function(value, index, list) {
-      results[results.length] = iterator.call(context, value, index, list);
+      results.push(iterator.call(context, value, index, list));
     });
     return results;
   };
@@ -2289,47 +1931,47 @@ module.exports = {
     if (!initial) throw new TypeError(reduceError);
     return memo;
   };
-  _.find = _.detect = function(obj, iterator, context) {
+  _.find = _.detect = function(obj, predicate, context) {
     var result;
     any(obj, function(value, index, list) {
-      if (iterator.call(context, value, index, list)) {
+      if (predicate.call(context, value, index, list)) {
         result = value;
         return true;
       }
     });
     return result;
   };
-  _.filter = _.select = function(obj, iterator, context) {
+  _.filter = _.select = function(obj, predicate, context) {
     var results = [];
     if (obj == null) return results;
-    if (nativeFilter && obj.filter === nativeFilter) return obj.filter(iterator, context);
+    if (nativeFilter && obj.filter === nativeFilter) return obj.filter(predicate, context);
     each(obj, function(value, index, list) {
-      if (iterator.call(context, value, index, list)) results[results.length] = value;
+      if (predicate.call(context, value, index, list)) results.push(value);
     });
     return results;
   };
-  _.reject = function(obj, iterator, context) {
+  _.reject = function(obj, predicate, context) {
     return _.filter(obj, function(value, index, list) {
-      return !iterator.call(context, value, index, list);
+      return !predicate.call(context, value, index, list);
     }, context);
   };
-  _.every = _.all = function(obj, iterator, context) {
-    iterator || (iterator = _.identity);
+  _.every = _.all = function(obj, predicate, context) {
+    predicate || (predicate = _.identity);
     var result = true;
     if (obj == null) return result;
-    if (nativeEvery && obj.every === nativeEvery) return obj.every(iterator, context);
+    if (nativeEvery && obj.every === nativeEvery) return obj.every(predicate, context);
     each(obj, function(value, index, list) {
-      if (!(result = result && iterator.call(context, value, index, list))) return breaker;
+      if (!(result = result && predicate.call(context, value, index, list))) return breaker;
     });
     return !!result;
   };
-  var any = _.some = _.any = function(obj, iterator, context) {
-    iterator || (iterator = _.identity);
+  var any = _.some = _.any = function(obj, predicate, context) {
+    predicate || (predicate = _.identity);
     var result = false;
     if (obj == null) return result;
-    if (nativeSome && obj.some === nativeSome) return obj.some(iterator, context);
+    if (nativeSome && obj.some === nativeSome) return obj.some(predicate, context);
     each(obj, function(value, index, list) {
-      if (result || (result = iterator.call(context, value, index, list))) return breaker;
+      if (result || (result = predicate.call(context, value, index, list))) return breaker;
     });
     return !!result;
   };
@@ -2348,43 +1990,41 @@ module.exports = {
     });
   };
   _.pluck = function(obj, key) {
-    return _.map(obj, function(value){ return value[key]; });
+    return _.map(obj, _.property(key));
   };
-  _.where = function(obj, attrs, first) {
-    if (_.isEmpty(attrs)) return first ? null : [];
-    return _[first ? 'find' : 'filter'](obj, function(value) {
-      for (var key in attrs) {
-        if (attrs[key] !== value[key]) return false;
-      }
-      return true;
-    });
+  _.where = function(obj, attrs) {
+    return _.filter(obj, _.matches(attrs));
   };
   _.findWhere = function(obj, attrs) {
-    return _.where(obj, attrs, true);
+    return _.find(obj, _.matches(attrs));
   };
   _.max = function(obj, iterator, context) {
     if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
       return Math.max.apply(Math, obj);
     }
-    if (!iterator && _.isEmpty(obj)) return -Infinity;
-    var result = {computed : -Infinity, value: -Infinity};
+    var result = -Infinity, lastComputed = -Infinity;
     each(obj, function(value, index, list) {
       var computed = iterator ? iterator.call(context, value, index, list) : value;
-      computed >= result.computed && (result = {value : value, computed : computed});
+      if (computed > lastComputed) {
+        result = value;
+        lastComputed = computed;
+      }
     });
-    return result.value;
+    return result;
   };
   _.min = function(obj, iterator, context) {
     if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
       return Math.min.apply(Math, obj);
     }
-    if (!iterator && _.isEmpty(obj)) return Infinity;
-    var result = {computed : Infinity, value: Infinity};
+    var result = Infinity, lastComputed = Infinity;
     each(obj, function(value, index, list) {
       var computed = iterator ? iterator.call(context, value, index, list) : value;
-      computed < result.computed && (result = {value : value, computed : computed});
+      if (computed < lastComputed) {
+        result = value;
+        lastComputed = computed;
+      }
     });
-    return result.value;
+    return result;
   };
   _.shuffle = function(obj) {
     var rand;
@@ -2397,16 +2037,25 @@ module.exports = {
     });
     return shuffled;
   };
-  var lookupIterator = function(value) {
-    return _.isFunction(value) ? value : function(obj){ return obj[value]; };
+  _.sample = function(obj, n, guard) {
+    if (n == null || guard) {
+      if (obj.length !== +obj.length) obj = _.values(obj);
+      return obj[_.random(obj.length - 1)];
+    }
+    return _.shuffle(obj).slice(0, Math.max(0, n));
   };
-  _.sortBy = function(obj, value, context) {
-    var iterator = lookupIterator(value);
+  var lookupIterator = function(value) {
+    if (value == null) return _.identity;
+    if (_.isFunction(value)) return value;
+    return _.property(value);
+  };
+  _.sortBy = function(obj, iterator, context) {
+    iterator = lookupIterator(iterator);
     return _.pluck(_.map(obj, function(value, index, list) {
       return {
-        value : value,
-        index : index,
-        criteria : iterator.call(context, value, index, list)
+        value: value,
+        index: index,
+        criteria: iterator.call(context, value, index, list)
       };
     }).sort(function(left, right) {
       var a = left.criteria;
@@ -2415,31 +2064,31 @@ module.exports = {
         if (a > b || a === void 0) return 1;
         if (a < b || b === void 0) return -1;
       }
-      return left.index < right.index ? -1 : 1;
+      return left.index - right.index;
     }), 'value');
   };
-  var group = function(obj, value, context, behavior) {
-    var result = {};
-    var iterator = lookupIterator(value || _.identity);
-    each(obj, function(value, index) {
-      var key = iterator.call(context, value, index, obj);
-      behavior(result, key, value);
-    });
-    return result;
+  var group = function(behavior) {
+    return function(obj, iterator, context) {
+      var result = {};
+      iterator = lookupIterator(iterator);
+      each(obj, function(value, index) {
+        var key = iterator.call(context, value, index, obj);
+        behavior(result, key, value);
+      });
+      return result;
+    };
   };
-  _.groupBy = function(obj, value, context) {
-    return group(obj, value, context, function(result, key, value) {
-      (_.has(result, key) ? result[key] : (result[key] = [])).push(value);
-    });
-  };
-  _.countBy = function(obj, value, context) {
-    return group(obj, value, context, function(result, key) {
-      if (!_.has(result, key)) result[key] = 0;
-      result[key]++;
-    });
-  };
+  _.groupBy = group(function(result, key, value) {
+    _.has(result, key) ? result[key].push(value) : result[key] = [value];
+  });
+  _.indexBy = group(function(result, key, value) {
+    result[key] = value;
+  });
+  _.countBy = group(function(result, key) {
+    _.has(result, key) ? result[key]++ : result[key] = 1;
+  });
   _.sortedIndex = function(array, obj, iterator, context) {
-    iterator = iterator == null ? _.identity : lookupIterator(iterator);
+    iterator = lookupIterator(iterator);
     var value = iterator.call(context, obj);
     var low = 0, high = array.length;
     while (low < high) {
@@ -2460,18 +2109,17 @@ module.exports = {
   };
   _.first = _.head = _.take = function(array, n, guard) {
     if (array == null) return void 0;
-    return (n != null) && !guard ? slice.call(array, 0, n) : array[0];
+    if ((n == null) || guard) return array[0];
+    if (n < 0) return [];
+    return slice.call(array, 0, n);
   };
   _.initial = function(array, n, guard) {
     return slice.call(array, 0, array.length - ((n == null) || guard ? 1 : n));
   };
   _.last = function(array, n, guard) {
     if (array == null) return void 0;
-    if ((n != null) && !guard) {
-      return slice.call(array, Math.max(array.length - n, 0));
-    } else {
-      return array[array.length - 1];
-    }
+    if ((n == null) || guard) return array[array.length - 1];
+    return slice.call(array, Math.max(array.length - n, 0));
   };
   _.rest = _.tail = _.drop = function(array, n, guard) {
     return slice.call(array, (n == null) || guard ? 1 : n);
@@ -2480,8 +2128,11 @@ module.exports = {
     return _.filter(array, _.identity);
   };
   var flatten = function(input, shallow, output) {
+    if (shallow && _.every(input, _.isArray)) {
+      return concat.apply(output, input);
+    }
     each(input, function(value) {
-      if (_.isArray(value)) {
+      if (_.isArray(value) || _.isArguments(value)) {
         shallow ? push.apply(output, value) : flatten(value, shallow, output);
       } else {
         output.push(value);
@@ -2494,6 +2145,13 @@ module.exports = {
   };
   _.without = function(array) {
     return _.difference(array, slice.call(arguments, 1));
+  };
+  _.partition = function(array, predicate) {
+    var pass = [], fail = [];
+    each(array, function(elem) {
+      (predicate(elem) ? pass : fail).push(elem);
+    });
+    return [pass, fail];
   };
   _.uniq = _.unique = function(array, isSorted, iterator, context) {
     if (_.isFunction(isSorted)) {
@@ -2513,13 +2171,13 @@ module.exports = {
     return results;
   };
   _.union = function() {
-    return _.uniq(concat.apply(ArrayProto, arguments));
+    return _.uniq(_.flatten(arguments, true));
   };
   _.intersection = function(array) {
     var rest = slice.call(arguments, 1);
     return _.filter(_.uniq(array), function(item) {
       return _.every(rest, function(other) {
-        return _.indexOf(other, item) >= 0;
+        return _.contains(other, item);
       });
     });
   };
@@ -2528,18 +2186,17 @@ module.exports = {
     return _.filter(array, function(value){ return !_.contains(rest, value); });
   };
   _.zip = function() {
-    var args = slice.call(arguments);
-    var length = _.max(_.pluck(args, 'length'));
+    var length = _.max(_.pluck(arguments, 'length').concat(0));
     var results = new Array(length);
     for (var i = 0; i < length; i++) {
-      results[i] = _.pluck(args, "" + i);
+      results[i] = _.pluck(arguments, '' + i);
     }
     return results;
   };
   _.object = function(list, values) {
     if (list == null) return {};
     var result = {};
-    for (var i = 0, l = list.length; i < l; i++) {
+    for (var i = 0, length = list.length; i < length; i++) {
       if (values) {
         result[list[i]] = values[i];
       } else {
@@ -2550,17 +2207,17 @@ module.exports = {
   };
   _.indexOf = function(array, item, isSorted) {
     if (array == null) return -1;
-    var i = 0, l = array.length;
+    var i = 0, length = array.length;
     if (isSorted) {
       if (typeof isSorted == 'number') {
-        i = (isSorted < 0 ? Math.max(0, l + isSorted) : isSorted);
+        i = (isSorted < 0 ? Math.max(0, length + isSorted) : isSorted);
       } else {
         i = _.sortedIndex(array, item);
         return array[i] === item ? i : -1;
       }
     }
     if (nativeIndexOf && array.indexOf === nativeIndexOf) return array.indexOf(item, isSorted);
-    for (; i < l; i++) if (array[i] === item) return i;
+    for (; i < length; i++) if (array[i] === item) return i;
     return -1;
   };
   _.lastIndexOf = function(array, item, from) {
@@ -2580,33 +2237,48 @@ module.exports = {
     }
     step = arguments[2] || 1;
 
-    var len = Math.max(Math.ceil((stop - start) / step), 0);
+    var length = Math.max(Math.ceil((stop - start) / step), 0);
     var idx = 0;
-    var range = new Array(len);
+    var range = new Array(length);
 
-    while(idx < len) {
+    while(idx < length) {
       range[idx++] = start;
       start += step;
     }
 
     return range;
   };
+  var ctor = function(){};
   _.bind = function(func, context) {
-    if (func.bind === nativeBind && nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
-    var args = slice.call(arguments, 2);
-    return function() {
-      return func.apply(context, args.concat(slice.call(arguments)));
+    var args, bound;
+    if (nativeBind && func.bind === nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
+    if (!_.isFunction(func)) throw new TypeError;
+    args = slice.call(arguments, 2);
+    return bound = function() {
+      if (!(this instanceof bound)) return func.apply(context, args.concat(slice.call(arguments)));
+      ctor.prototype = func.prototype;
+      var self = new ctor;
+      ctor.prototype = null;
+      var result = func.apply(self, args.concat(slice.call(arguments)));
+      if (Object(result) === result) return result;
+      return self;
     };
   };
   _.partial = function(func) {
-    var args = slice.call(arguments, 1);
+    var boundArgs = slice.call(arguments, 1);
     return function() {
-      return func.apply(this, args.concat(slice.call(arguments)));
+      var position = 0;
+      var args = boundArgs.slice();
+      for (var i = 0, length = args.length; i < length; i++) {
+        if (args[i] === _) args[i] = arguments[position++];
+      }
+      while (position < arguments.length) args.push(arguments[position++]);
+      return func.apply(this, args);
     };
   };
   _.bindAll = function(obj) {
     var funcs = slice.call(arguments, 1);
-    if (funcs.length === 0) funcs = _.functions(obj);
+    if (funcs.length === 0) throw new Error('bindAll must be passed function names');
     each(funcs, function(f) { obj[f] = _.bind(obj[f], obj); });
     return obj;
   };
@@ -2625,16 +2297,20 @@ module.exports = {
   _.defer = function(func) {
     return _.delay.apply(_, [func, 1].concat(slice.call(arguments, 1)));
   };
-  _.throttle = function(func, wait) {
-    var context, args, timeout, result;
+  _.throttle = function(func, wait, options) {
+    var context, args, result;
+    var timeout = null;
     var previous = 0;
+    options || (options = {});
     var later = function() {
-      previous = new Date;
+      previous = options.leading === false ? 0 : _.now();
       timeout = null;
       result = func.apply(context, args);
+      context = args = null;
     };
     return function() {
-      var now = new Date;
+      var now = _.now();
+      if (!previous && options.leading === false) previous = now;
       var remaining = wait - (now - previous);
       context = this;
       args = arguments;
@@ -2643,24 +2319,42 @@ module.exports = {
         timeout = null;
         previous = now;
         result = func.apply(context, args);
-      } else if (!timeout) {
+        context = args = null;
+      } else if (!timeout && options.trailing !== false) {
         timeout = setTimeout(later, remaining);
       }
       return result;
     };
   };
   _.debounce = function(func, wait, immediate) {
-    var timeout, result;
-    return function() {
-      var context = this, args = arguments;
-      var later = function() {
+    var timeout, args, context, timestamp, result;
+
+    var later = function() {
+      var last = _.now() - timestamp;
+      if (last < wait) {
+        timeout = setTimeout(later, wait - last);
+      } else {
         timeout = null;
-        if (!immediate) result = func.apply(context, args);
-      };
+        if (!immediate) {
+          result = func.apply(context, args);
+          context = args = null;
+        }
+      }
+    };
+
+    return function() {
+      context = this;
+      args = arguments;
+      timestamp = _.now();
       var callNow = immediate && !timeout;
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
-      if (callNow) result = func.apply(context, args);
+      if (!timeout) {
+        timeout = setTimeout(later, wait);
+      }
+      if (callNow) {
+        result = func.apply(context, args);
+        context = args = null;
+      }
+
       return result;
     };
   };
@@ -2675,11 +2369,7 @@ module.exports = {
     };
   };
   _.wrap = function(func, wrapper) {
-    return function() {
-      var args = [func];
-      push.apply(args, arguments);
-      return wrapper.apply(this, args);
-    };
+    return _.partial(wrapper, func);
   };
   _.compose = function() {
     var funcs = arguments;
@@ -2692,32 +2382,43 @@ module.exports = {
     };
   };
   _.after = function(times, func) {
-    if (times <= 0) return func();
     return function() {
       if (--times < 1) {
         return func.apply(this, arguments);
       }
     };
   };
-  _.keys = nativeKeys || function(obj) {
-    if (obj !== Object(obj)) throw new TypeError('Invalid object');
+  _.keys = function(obj) {
+    if (!_.isObject(obj)) return [];
+    if (nativeKeys) return nativeKeys(obj);
     var keys = [];
-    for (var key in obj) if (_.has(obj, key)) keys[keys.length] = key;
+    for (var key in obj) if (_.has(obj, key)) keys.push(key);
     return keys;
   };
   _.values = function(obj) {
-    var values = [];
-    for (var key in obj) if (_.has(obj, key)) values.push(obj[key]);
+    var keys = _.keys(obj);
+    var length = keys.length;
+    var values = new Array(length);
+    for (var i = 0; i < length; i++) {
+      values[i] = obj[keys[i]];
+    }
     return values;
   };
   _.pairs = function(obj) {
-    var pairs = [];
-    for (var key in obj) if (_.has(obj, key)) pairs.push([key, obj[key]]);
+    var keys = _.keys(obj);
+    var length = keys.length;
+    var pairs = new Array(length);
+    for (var i = 0; i < length; i++) {
+      pairs[i] = [keys[i], obj[keys[i]]];
+    }
     return pairs;
   };
   _.invert = function(obj) {
     var result = {};
-    for (var key in obj) if (_.has(obj, key)) result[obj[key]] = key;
+    var keys = _.keys(obj);
+    for (var i = 0, length = keys.length; i < length; i++) {
+      result[obj[keys[i]]] = keys[i];
+    }
     return result;
   };
   _.functions = _.methods = function(obj) {
@@ -2757,7 +2458,7 @@ module.exports = {
     each(slice.call(arguments, 1), function(source) {
       if (source) {
         for (var prop in source) {
-          if (obj[prop] == null) obj[prop] = source[prop];
+          if (obj[prop] === void 0) obj[prop] = source[prop];
         }
       }
     });
@@ -2797,6 +2498,12 @@ module.exports = {
     while (length--) {
       if (aStack[length] == a) return bStack[length] == b;
     }
+    var aCtor = a.constructor, bCtor = b.constructor;
+    if (aCtor !== bCtor && !(_.isFunction(aCtor) && (aCtor instanceof aCtor) &&
+                             _.isFunction(bCtor) && (bCtor instanceof bCtor))
+                        && ('constructor' in a && 'constructor' in b)) {
+      return false;
+    }
     aStack.push(a);
     bStack.push(b);
     var size = 0, result = true;
@@ -2809,11 +2516,6 @@ module.exports = {
         }
       }
     } else {
-      var aCtor = a.constructor, bCtor = b.constructor;
-      if (aCtor !== bCtor && !(_.isFunction(aCtor) && (aCtor instanceof aCtor) &&
-                               _.isFunction(bCtor) && (bCtor instanceof bCtor))) {
-        return false;
-      }
       for (var key in a) {
         if (_.has(a, key)) {
           size++;
@@ -2889,8 +2591,30 @@ module.exports = {
   _.identity = function(value) {
     return value;
   };
+
+  _.constant = function(value) {
+    return function () {
+      return value;
+    };
+  };
+
+  _.property = function(key) {
+    return function(obj) {
+      return obj[key];
+    };
+  };
+  _.matches = function(attrs) {
+    return function(obj) {
+      if (obj === attrs) return true; //avoid comparing an object to itself.
+      for (var key in attrs) {
+        if (attrs[key] !== obj[key])
+          return false;
+      }
+      return true;
+    }
+  };
   _.times = function(n, iterator, context) {
-    var accum = Array(n);
+    var accum = Array(Math.max(0, n));
     for (var i = 0; i < n; i++) accum[i] = iterator.call(context, i);
     return accum;
   };
@@ -2901,14 +2625,14 @@ module.exports = {
     }
     return min + Math.floor(Math.random() * (max - min + 1));
   };
+  _.now = Date.now || function() { return new Date().getTime(); };
   var entityMap = {
     escape: {
       '&': '&amp;',
       '<': '&lt;',
       '>': '&gt;',
       '"': '&quot;',
-      "'": '&#x27;',
-      '/': '&#x2F;'
+      "'": '&#x27;'
     }
   };
   entityMap.unescape = _.invert(entityMap.escape);
@@ -2925,12 +2649,12 @@ module.exports = {
     };
   });
   _.result = function(object, property) {
-    if (object == null) return null;
+    if (object == null) return void 0;
     var value = object[property];
     return _.isFunction(value) ? value.call(object) : value;
   };
   _.mixin = function(obj) {
-    each(_.functions(obj), function(name){
+    each(_.functions(obj), function(name) {
       var func = _[name] = obj[name];
       _.prototype[name] = function() {
         var args = [this._wrapped];
@@ -3042,7 +2766,11 @@ module.exports = {
     }
 
   });
-
+  if (typeof define === 'function' && define.amd) {
+    define('underscore', [], function() {
+      return _;
+    });
+  }
 }).call(this);
 
 },
@@ -3103,6 +2831,7 @@ var JSHINT = (function () {
       globalstrict: true, // if global  should be allowed (also enables 'strict')
       immed       : true, // if immediate invocations must be wrapped in parens
       iterator    : true, // if the `__iterator__` property should be allowed
+      jasmine     : true, // Jasmine functions should be predefined
       jquery      : true, // if jQuery globals should be predefined
       lastsemic   : true, // if semicolons may be ommitted for the trailing
       laxbreak    : true, // if line breaks should not be checked
@@ -3122,6 +2851,7 @@ var JSHINT = (function () {
       plusplus    : true, // if increment/decrement should not be allowed
       proto       : true, // if the `__proto__` property should be allowed
       prototypejs : true, // if Prototype and Scriptaculous globals should be
+      qunit       : true, // if the QUnit environment globals should be predefined
       rhino       : true, // if the Rhino environment globals should be predefined
       shelljs     : true, // if ShellJS globals should be predefined
       typed       : true, // if typed array globals should be predefined
@@ -3278,7 +3008,7 @@ var JSHINT = (function () {
 
   function combine(dest, src) {
     Object.keys(src).forEach(function (name) {
-      if (JSHINT.blacklist.hasOwnProperty(name)) return;
+      if (_.has(JSHINT.blacklist, name)) return;
       dest[name] = src[name];
     });
   }
@@ -3290,6 +3020,10 @@ var JSHINT = (function () {
 
     if (state.option.couch) {
       combine(predefined, vars.couch);
+    }
+
+    if (state.option.qunit) {
+      combine(predefined, vars.qunit);
     }
 
     if (state.option.rhino) {
@@ -3332,6 +3066,10 @@ var JSHINT = (function () {
 
     if (state.option.nonstandard) {
       combine(predefined, vars.nonstandard);
+    }
+
+    if (state.option.jasmine) {
+      combine(predefined, vars.jasmine);
     }
 
     if (state.option.jquery) {
@@ -3875,11 +3613,13 @@ var JSHINT = (function () {
     if (state.tokens.next.id === "(end)")
       error("E006", state.tokens.curr);
 
-    if (state.option.asi &&
-        (state.tokens.curr.id === "[" ||
-          state.tokens.curr.id === "(" ||
-          state.tokens.curr.id === "/") &&
-        state.tokens.prev.line < state.tokens.curr.line)
+    var isDangerous =
+      state.option.asi &&
+      state.tokens.prev.line < state.tokens.curr.line &&
+      _.contains(["]", ")"], state.tokens.prev.id) &&
+      _.contains(["[", "("], state.tokens.curr.id);
+
+    if (isDangerous)
       warning("W014", state.tokens.curr, state.tokens.curr.id);
 
     advance();
@@ -4429,6 +4169,18 @@ var JSHINT = (function () {
     }
   }
 
+  function parseFinalSemicolon() {
+    if (state.tokens.next.id !== ";") {
+      if (!state.option.asi) {
+        if (!state.option.lastsemic || state.tokens.next.id !== "}" ||
+          state.tokens.next.line !== state.tokens.curr.line) {
+          warningAt("W033", state.tokens.curr.line, state.tokens.curr.character);
+        }
+      }
+    } else {
+      advance(";");
+    }
+  }
 
   function statement() {
     var values;
@@ -4443,6 +4195,21 @@ var JSHINT = (function () {
     if (res && t.meta && t.meta.isFutureReservedWord && peek().id === ":") {
       warning("W024", t, t.id);
       res = false;
+    }
+    if (t.value === "module" && t.type === "(identifier)") {
+      if (peek().type === "(identifier)") {
+        if (!state.option.inESNext()) {
+          warning("W119", state.tokens.curr, "module");
+        }
+
+        advance("module");
+        var name = identifier();
+        addlabel(name, { type: "unused", token: state.tokens.curr });
+        advance("from");
+        advance("(string)");
+        parseFinalSemicolon();
+        return;
+      }
     }
     if (_.has(["[", "{"], t.value)) {
       if (lookupBlockType().isDestAssign) {
@@ -4495,17 +4262,7 @@ var JSHINT = (function () {
       } else if (state.option.nonew && r && r.left && r.id === "(" && r.left.id === "new") {
         warning("W031", t);
       }
-
-      if (state.tokens.next.id !== ";") {
-        if (!state.option.asi) {
-          if (!state.option.lastsemic || state.tokens.next.id !== "}" ||
-            state.tokens.next.line !== state.tokens.curr.line) {
-            warningAt("W033", state.tokens.curr.line, state.tokens.curr.character);
-          }
-        }
-      } else {
-        advance(";");
-      }
+      parseFinalSemicolon();
     }
 
     indent = i;
@@ -6913,7 +6670,6 @@ var JSHINT = (function () {
   FutureReservedWord("static", { es5: true, strictOnly: true });
   FutureReservedWord("super", { es5: true });
   FutureReservedWord("synchronized");
-  FutureReservedWord("throws");
   FutureReservedWord("transient");
   FutureReservedWord("volatile");
 
@@ -9226,7 +8982,7 @@ exports.needEscGlobal =
   /[\u0000-\u001f&<"\/\\\u007f-\u009f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
 exports.starSlash = /\*\//;
 exports.identifier = /^([a-zA-Z_$][a-zA-Z0-9_$]*)$/;
-exports.javascriptURL = /^(?:javascript|jscript|ecmascript|vbscript|mocha|livescript)\s*:/i;
+exports.javascriptURL = /^(?:javascript|jscript|ecmascript|vbscript|livescript)\s*:/i;
 exports.fallsThrough = /^\s*\/\*\s*falls?\sthrough\s*\*\/\s*$/;
 exports.maxlenException = /^(?:(?:\/\/|\/\*|\*) ?)?[^ ]+$/;
 
@@ -9370,7 +9126,7 @@ exports.register = function (linter) {
   });
 
   linter.on("String", function style_scanJavaScriptURLs(data) {
-    var re = /^(?:javascript|jscript|ecmascript|vbscript|mocha|livescript)\s*:/i;
+    var re = /^(?:javascript|jscript|ecmascript|vbscript|livescript)\s*:/i;
 
     if (linter.getOption("scripturl")) {
       return;
@@ -9789,6 +9545,27 @@ exports.phantom = {
   exports      : true  // v1.7+
 };
 
+exports.qunit = {
+  asyncTest      : false,
+  deepEqual      : false,
+  equal          : false,
+  expect         : false,
+  module         : false,
+  notDeepEqual   : false,
+  notEqual       : false,
+  notPropEqual   : false,
+  notStrictEqual : false,
+  ok             : false,
+  propEqual      : false,
+  QUnit          : false,
+  raises         : false,
+  start          : false,
+  stop           : false,
+  strictEqual    : false,
+  test           : false,
+  "throws"       : false
+};
+
 exports.rhino = {
   defineClass  : false,
   deserialize  : false,
@@ -9906,7 +9683,7 @@ exports.mootools = {
   Group         : false,
   Hash          : false,
   HtmlTable     : false,
-  Iframe        : false,
+  IFrame        : false,
   IframeShim    : false,
   InputValidator: false,
   instanceOf    : false,
@@ -9989,6 +9766,22 @@ exports.mocha = {
   test        : false,
   setup       : false,
   teardown    : false
+};
+
+exports.jasmine = {
+  jasmine     : false,
+  describe    : false,
+  it          : false,
+  xit         : false,
+  beforeEach  : false,
+  afterEach   : false,
+  setFixtures : false,
+  loadFixtures: false,
+  spyOn       : false,
+  expect      : false,
+  runs        : false,
+  waitsFor    : false,
+  waits       : false
 };
 
 },
@@ -10252,4 +10045,363 @@ function isUndefined(arg) {
 {}]},{},[3])
 (3)
 
+});
+
+define('ace/document', ['require', 'exports', 'module' , 'ace/lib/oop', 'ace/lib/event_emitter', 'ace/range', 'ace/anchor'], function(require, exports, module) {
+
+
+var oop = require("./lib/oop");
+var EventEmitter = require("./lib/event_emitter").EventEmitter;
+var Range = require("./range").Range;
+var Anchor = require("./anchor").Anchor;
+
+var Document = function(text) {
+    this.$lines = [];
+    if (text.length === 0) {
+        this.$lines = [""];
+    } else if (Array.isArray(text)) {
+        this._insertLines(0, text);
+    } else {
+        this.insert({row: 0, column:0}, text);
+    }
+};
+
+(function() {
+
+    oop.implement(this, EventEmitter);
+    this.setValue = function(text) {
+        var len = this.getLength();
+        this.remove(new Range(0, 0, len, this.getLine(len-1).length));
+        this.insert({row: 0, column:0}, text);
+    };
+    this.getValue = function() {
+        return this.getAllLines().join(this.getNewLineCharacter());
+    };
+    this.createAnchor = function(row, column) {
+        return new Anchor(this, row, column);
+    };
+    if ("aaa".split(/a/).length === 0)
+        this.$split = function(text) {
+            return text.replace(/\r\n|\r/g, "\n").split("\n");
+        };
+    else
+        this.$split = function(text) {
+            return text.split(/\r\n|\r|\n/);
+        };
+
+
+    this.$detectNewLine = function(text) {
+        var match = text.match(/^.*?(\r\n|\r|\n)/m);
+        this.$autoNewLine = match ? match[1] : "\n";
+        this._signal("changeNewLineMode");
+    };
+    this.getNewLineCharacter = function() {
+        switch (this.$newLineMode) {
+          case "windows":
+            return "\r\n";
+          case "unix":
+            return "\n";
+          default:
+            return this.$autoNewLine || "\n";
+        }
+    };
+
+    this.$autoNewLine = "";
+    this.$newLineMode = "auto";
+    this.setNewLineMode = function(newLineMode) {
+        if (this.$newLineMode === newLineMode)
+            return;
+
+        this.$newLineMode = newLineMode;
+        this._signal("changeNewLineMode");
+    };
+    this.getNewLineMode = function() {
+        return this.$newLineMode;
+    };
+    this.isNewLine = function(text) {
+        return (text == "\r\n" || text == "\r" || text == "\n");
+    };
+    this.getLine = function(row) {
+        return this.$lines[row] || "";
+    };
+    this.getLines = function(firstRow, lastRow) {
+        return this.$lines.slice(firstRow, lastRow + 1);
+    };
+    this.getAllLines = function() {
+        return this.getLines(0, this.getLength());
+    };
+    this.getLength = function() {
+        return this.$lines.length;
+    };
+    this.getTextRange = function(range) {
+        if (range.start.row == range.end.row) {
+            return this.getLine(range.start.row)
+                .substring(range.start.column, range.end.column);
+        }
+        var lines = this.getLines(range.start.row, range.end.row);
+        lines[0] = (lines[0] || "").substring(range.start.column);
+        var l = lines.length - 1;
+        if (range.end.row - range.start.row == l)
+            lines[l] = lines[l].substring(0, range.end.column);
+        return lines.join(this.getNewLineCharacter());
+    };
+
+    this.$clipPosition = function(position) {
+        var length = this.getLength();
+        if (position.row >= length) {
+            position.row = Math.max(0, length - 1);
+            position.column = this.getLine(length-1).length;
+        } else if (position.row < 0)
+            position.row = 0;
+        return position;
+    };
+    this.insert = function(position, text) {
+        if (!text || text.length === 0)
+            return position;
+
+        position = this.$clipPosition(position);
+        if (this.getLength() <= 1)
+            this.$detectNewLine(text);
+
+        var lines = this.$split(text);
+        var firstLine = lines.splice(0, 1)[0];
+        var lastLine = lines.length == 0 ? null : lines.splice(lines.length - 1, 1)[0];
+
+        position = this.insertInLine(position, firstLine);
+        if (lastLine !== null) {
+            position = this.insertNewLine(position); // terminate first line
+            position = this._insertLines(position.row, lines);
+            position = this.insertInLine(position, lastLine || "");
+        }
+        return position;
+    };
+    this.insertLines = function(row, lines) {
+        if (row >= this.getLength())
+            return this.insert({row: row, column: 0}, "\n" + lines.join("\n"));
+        return this._insertLines(Math.max(row, 0), lines);
+    };
+    this._insertLines = function(row, lines) {
+        if (lines.length == 0)
+            return {row: row, column: 0};
+        while (lines.length > 0xF000) {
+            var end = this._insertLines(row, lines.slice(0, 0xF000));
+            lines = lines.slice(0xF000);
+            row = end.row;
+        }
+
+        var args = [row, 0];
+        args.push.apply(args, lines);
+        this.$lines.splice.apply(this.$lines, args);
+
+        var range = new Range(row, 0, row + lines.length, 0);
+        var delta = {
+            action: "insertLines",
+            range: range,
+            lines: lines
+        };
+        this._signal("change", { data: delta });
+        return range.end;
+    };
+    this.insertNewLine = function(position) {
+        position = this.$clipPosition(position);
+        var line = this.$lines[position.row] || "";
+
+        this.$lines[position.row] = line.substring(0, position.column);
+        this.$lines.splice(position.row + 1, 0, line.substring(position.column, line.length));
+
+        var end = {
+            row : position.row + 1,
+            column : 0
+        };
+
+        var delta = {
+            action: "insertText",
+            range: Range.fromPoints(position, end),
+            text: this.getNewLineCharacter()
+        };
+        this._signal("change", { data: delta });
+
+        return end;
+    };
+    this.insertInLine = function(position, text) {
+        if (text.length == 0)
+            return position;
+
+        var line = this.$lines[position.row] || "";
+
+        this.$lines[position.row] = line.substring(0, position.column) + text
+                + line.substring(position.column);
+
+        var end = {
+            row : position.row,
+            column : position.column + text.length
+        };
+
+        var delta = {
+            action: "insertText",
+            range: Range.fromPoints(position, end),
+            text: text
+        };
+        this._signal("change", { data: delta });
+
+        return end;
+    };
+    this.remove = function(range) {
+        if (!(range instanceof Range))
+            range = Range.fromPoints(range.start, range.end);
+        range.start = this.$clipPosition(range.start);
+        range.end = this.$clipPosition(range.end);
+
+        if (range.isEmpty())
+            return range.start;
+
+        var firstRow = range.start.row;
+        var lastRow = range.end.row;
+
+        if (range.isMultiLine()) {
+            var firstFullRow = range.start.column == 0 ? firstRow : firstRow + 1;
+            var lastFullRow = lastRow - 1;
+
+            if (range.end.column > 0)
+                this.removeInLine(lastRow, 0, range.end.column);
+
+            if (lastFullRow >= firstFullRow)
+                this._removeLines(firstFullRow, lastFullRow);
+
+            if (firstFullRow != firstRow) {
+                this.removeInLine(firstRow, range.start.column, this.getLine(firstRow).length);
+                this.removeNewLine(range.start.row);
+            }
+        }
+        else {
+            this.removeInLine(firstRow, range.start.column, range.end.column);
+        }
+        return range.start;
+    };
+    this.removeInLine = function(row, startColumn, endColumn) {
+        if (startColumn == endColumn)
+            return;
+
+        var range = new Range(row, startColumn, row, endColumn);
+        var line = this.getLine(row);
+        var removed = line.substring(startColumn, endColumn);
+        var newLine = line.substring(0, startColumn) + line.substring(endColumn, line.length);
+        this.$lines.splice(row, 1, newLine);
+
+        var delta = {
+            action: "removeText",
+            range: range,
+            text: removed
+        };
+        this._signal("change", { data: delta });
+        return range.start;
+    };
+    this.removeLines = function(firstRow, lastRow) {
+        if (firstRow < 0 || lastRow >= this.getLength())
+            return this.remove(new Range(firstRow, 0, lastRow + 1, 0));
+        return this._removeLines(firstRow, lastRow);
+    };
+
+    this._removeLines = function(firstRow, lastRow) {
+        var range = new Range(firstRow, 0, lastRow + 1, 0);
+        var removed = this.$lines.splice(firstRow, lastRow - firstRow + 1);
+
+        var delta = {
+            action: "removeLines",
+            range: range,
+            nl: this.getNewLineCharacter(),
+            lines: removed
+        };
+        this._signal("change", { data: delta });
+        return removed;
+    };
+    this.removeNewLine = function(row) {
+        var firstLine = this.getLine(row);
+        var secondLine = this.getLine(row+1);
+
+        var range = new Range(row, firstLine.length, row+1, 0);
+        var line = firstLine + secondLine;
+
+        this.$lines.splice(row, 2, line);
+
+        var delta = {
+            action: "removeText",
+            range: range,
+            text: this.getNewLineCharacter()
+        };
+        this._signal("change", { data: delta });
+    };
+    this.replace = function(range, text) {
+        if (!(range instanceof Range))
+            range = Range.fromPoints(range.start, range.end);
+        if (text.length == 0 && range.isEmpty())
+            return range.start;
+        if (text == this.getTextRange(range))
+            return range.end;
+
+        this.remove(range);
+        if (text) {
+            var end = this.insert(range.start, text);
+        }
+        else {
+            end = range.start;
+        }
+
+        return end;
+    };
+    this.applyDeltas = function(deltas) {
+        for (var i=0; i<deltas.length; i++) {
+            var delta = deltas[i];
+            var range = Range.fromPoints(delta.range.start, delta.range.end);
+
+            if (delta.action == "insertLines")
+                this.insertLines(range.start.row, delta.lines);
+            else if (delta.action == "insertText")
+                this.insert(range.start, delta.text);
+            else if (delta.action == "removeLines")
+                this._removeLines(range.start.row, range.end.row - 1);
+            else if (delta.action == "removeText")
+                this.remove(range);
+        }
+    };
+    this.revertDeltas = function(deltas) {
+        for (var i=deltas.length-1; i>=0; i--) {
+            var delta = deltas[i];
+
+            var range = Range.fromPoints(delta.range.start, delta.range.end);
+
+            if (delta.action == "insertLines")
+                this._removeLines(range.start.row, range.end.row - 1);
+            else if (delta.action == "insertText")
+                this.remove(range);
+            else if (delta.action == "removeLines")
+                this._insertLines(range.start.row, delta.lines);
+            else if (delta.action == "removeText")
+                this.insert(range.start, delta.text);
+        }
+    };
+    this.indexToPosition = function(index, startRow) {
+        var lines = this.$lines || this.getAllLines();
+        var newlineLength = this.getNewLineCharacter().length;
+        for (var i = startRow || 0, l = lines.length; i < l; i++) {
+            index -= lines[i].length + newlineLength;
+            if (index < 0)
+                return {row: i, column: index + lines[i].length + newlineLength};
+        }
+        return {row: l-1, column: lines[l-1].length};
+    };
+    this.positionToIndex = function(pos, startRow) {
+        var lines = this.$lines || this.getAllLines();
+        var newlineLength = this.getNewLineCharacter().length;
+        var index = 0;
+        var row = Math.min(pos.row, lines.length);
+        for (var i = startRow || 0; i < row; ++i)
+            index += lines[i].length + newlineLength;
+
+        return index + pos.column;
+    };
+
+}).call(Document.prototype);
+
+exports.Document = Document;
 });

@@ -43,7 +43,6 @@ exports.$detectIndentation = function(lines, fallback) {
         if (!/^\s*[^*+\-\s]/.test(line))
             continue;
 
-        var tabs = line.match(/^\t*/)[0].length;
         if (line[0] == "\t")
             tabIndents++;
 
@@ -60,9 +59,6 @@ exports.$detectIndentation = function(lines, fallback) {
             line = lines[i++];
     }
     
-    if (!stats.length)
-        return;
-
     function getScore(indent) {
         var score = 0;
         for (var i = indent; i < stats.length; i += indent)
@@ -77,13 +73,12 @@ exports.$detectIndentation = function(lines, fallback) {
     for (var i = 1; i < 12; i++) {
         if (i == 1) {
             spaceIndents = getScore(i);
-            var score = 1;
+            var score = stats.length && 1;
         } else
             var score = getScore(i) / spaceIndents;
 
-        if (changes[i]) {
+        if (changes[i])
             score += changes[i] / changesTotal;
-        }
 
         if (score > first.score)
             first = {score: score, length: i};
@@ -95,7 +90,7 @@ exports.$detectIndentation = function(lines, fallback) {
     if (tabIndents > spaceIndents + 1)
         return {ch: "\t", length: tabLength};
 
-    if (spaceIndents + 1 > tabIndents)
+    if (spaceIndents > tabIndents + 1)
         return {ch: " ", length: tabLength};
 };
 
@@ -207,3 +202,8 @@ exports.commands = [{
 }];
 
 });
+;
+                (function() {
+                    window.require(["ace/ext/whitespace"], function() {});
+                })();
+            
