@@ -1,6 +1,6 @@
-define("ace/mode/xquery/jsoniq_lexer",["require","exports","module"], function(require, exports, module) {
-module.exports = (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({
-1:[function(_dereq_,module,exports){
+define("ace/mode/xquery/jsoniq_lexer",["require","exports","module","ace/mode/xquery/JSONiqTokenizer","ace/mode/xquery/lexer"], function(require, exports, module) {
+module.exports = (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({
+1:[function(require,module,exports){
                                                             var JSONiqTokenizer = exports.JSONiqTokenizer = function JSONiqTokenizer(string, parsingEventHandler)
                                                             {
                                                               init(string, parsingEventHandler);
@@ -1825,11 +1825,11 @@ JSONiqTokenizer.TOKEN =
 
 },
 {}],
-2:[function(_dereq_,module,exports){
+2:[function(require,module,exports){
 'use strict';
 
-var JSONiqTokenizer = _dereq_('./JSONiqTokenizer').JSONiqTokenizer;
-var Lexer = _dereq_('./lexer').Lexer;
+var JSONiqTokenizer = require('./JSONiqTokenizer').JSONiqTokenizer;
+var Lexer = require('./lexer').Lexer;
 
 var keys = 'NaN|after|allowing|ancestor|ancestor-or-self|and|append|array|as|ascending|at|attribute|base-uri|before|boundary-space|break|by|case|cast|castable|catch|child|collation|comment|constraint|construction|contains|context|continue|copy|copy-namespaces|count|decimal-format|decimal-separator|declare|default|delete|descendant|descendant-or-self|descending|digit|div|document|document-node|element|else|empty|empty-sequence|encoding|end|eq|every|except|exit|external|false|first|following|following-sibling|for|from|ft-option|function|ge|greatest|group|grouping-separator|gt|idiv|if|import|in|index|infinity|insert|instance|integrity|intersect|into|is|item|json|json-item|jsoniq|last|lax|le|least|let|loop|lt|minus-sign|mod|modify|module|namespace|namespace-node|ne|next|node|nodes|not|null|object|of|only|option|or|order|ordered|ordering|paragraphs|parent|pattern-separator|per-mille|percent|preceding|preceding-sibling|previous|processing-instruction|rename|replace|return|returning|revalidation|satisfies|schema|schema-attribute|schema-element|score|select|self|sentences|sliding|some|stable|start|strict|switch|text|then|times|to|treat|true|try|tumbling|type|typeswitch|union|unordered|updating|validate|value|variable|version|when|where|while|window|with|words|xquery|zero-digit'.split('|');
 var keywords = keys.map(function(val) { return { name: '\'' + val + '\'', token: 'keyword' }; });
@@ -1962,7 +1962,7 @@ var Rules = {
 exports.JSONiqLexer = function(){ return new Lexer(JSONiqTokenizer, Rules); };
 },
 {"./JSONiqTokenizer":1,"./lexer":3}],
-3:[function(_dereq_,module,exports){
+3:[function(require,module,exports){
 'use strict';
 
 var TokenHandler = function(code) {
@@ -2064,8 +2064,7 @@ exports.Lexer = function(Tokenizer, Rules) {
     };
 };
 },
-{}]},{},[2])
-(2)
+{}]},{},[2])(2)
 
 });
 
@@ -2297,45 +2296,43 @@ var CstyleBehaviour = function() {
                     text: quote + selected + quote,
                     selection: false
                 };
-            } else {
+            } else if (!selected) {
                 var cursor = editor.getCursorPosition();
                 var line = session.doc.getLine(cursor.row);
                 var leftChar = line.substring(cursor.column-1, cursor.column);
-                if (leftChar == '\\') {
+                var rightChar = line.substring(cursor.column, cursor.column + 1);
+                
+                var token = session.getTokenAt(cursor.row, cursor.column);
+                var rightToken = session.getTokenAt(cursor.row, cursor.column + 1);
+                if (leftChar == "\\" && token && /escape/.test(token.type))
                     return null;
+                
+                var stringBefore = token && /string/.test(token.type);
+                var stringAfter = !rightToken || /string/.test(rightToken.type);
+                
+                var pair;
+                if (rightChar == quote) {
+                    pair = stringBefore !== stringAfter;
+                } else {
+                    if (stringBefore && !stringAfter)
+                        return null; // wrap string with different quote
+                    if (stringBefore && stringAfter)
+                        return null; // do not pair quotes inside strings
+                    var wordRe = session.$mode.tokenRe;
+                    wordRe.lastIndex = 0;
+                    var isWordBefore = wordRe.test(leftChar);
+                    wordRe.lastIndex = 0;
+                    var isWordAfter = wordRe.test(leftChar);
+                    if (isWordBefore || isWordAfter)
+                        return null; // before or after alphanumeric
+                    if (rightChar && !/[\s;,.})\]\\]/.test(rightChar))
+                        return null; // there is rightChar and it isn't closing
+                    pair = true;
                 }
-                var tokens = session.getTokens(selection.start.row);
-                var col = 0, token;
-                var quotepos = -1; // Track whether we're inside an open quote.
-
-                for (var x = 0; x < tokens.length; x++) {
-                    token = tokens[x];
-                    if (token.type == "string") {
-                      quotepos = -1;
-                    } else if (quotepos < 0) {
-                      quotepos = token.value.indexOf(quote);
-                    }
-                    if ((token.value.length + col) > selection.start.column) {
-                        break;
-                    }
-                    col += tokens[x].value.length;
-                }
-                if (!token || (quotepos < 0 && token.type !== "comment" && (token.type !== "string" || ((selection.start.column !== token.value.length+col-1) && token.value.lastIndexOf(quote) === token.value.length-1)))) {
-                    if (!CstyleBehaviour.isSaneInsertion(editor, session))
-                        return;
-                    return {
-                        text: quote + quote,
-                        selection: [1,1]
-                    };
-                } else if (token && token.type === "string") {
-                    var rightChar = line.substring(cursor.column, cursor.column + 1);
-                    if (rightChar == quote) {
-                        return {
-                            text: '',
-                            selection: [1, 1]
-                        };
-                    }
-                }
+                return {
+                    text: pair ? quote + quote : "",
+                    selection: [1,1]
+                };
             }
         }
     });
@@ -2545,6 +2542,8 @@ var XmlBehaviour = function () {
             var token = iterator.getCurrentToken();
 
             if (token && token.type.indexOf("tag-close") !== -1) {
+                if (token.value == "/>")
+                    return;
                 while (token && token.type.indexOf("tag-name") === -1) {
                     token = iterator.stepBackward();
                 }
@@ -2672,12 +2671,35 @@ var FoldMode = exports.FoldMode = function(commentRegex) {
 oop.inherits(FoldMode, BaseFoldMode);
 
 (function() {
-
+    
     this.foldingStartMarker = /(\{|\[)[^\}\]]*$|^\s*(\/\*)/;
     this.foldingStopMarker = /^[^\[\{]*(\}|\])|^[\s\*]*(\*\/)/;
+    this.singleLineBlockCommentRe= /^\s*(\/\*).*\*\/\s*$/;
+    this.tripleStarBlockCommentRe = /^\s*(\/\*\*\*).*\*\/\s*$/;
+    this.startRegionRe = /^\s*(\/\*|\/\/)#region\b/;
+    this._getFoldWidgetBase = this.getFoldWidget;
+    this.getFoldWidget = function(session, foldStyle, row) {
+        var line = session.getLine(row);
+    
+        if (this.singleLineBlockCommentRe.test(line)) {
+            if (!this.startRegionRe.test(line) && !this.tripleStarBlockCommentRe.test(line))
+                return "";
+        }
+    
+        var fw = this._getFoldWidgetBase(session, foldStyle, row);
+    
+        if (!fw && this.startRegionRe.test(line))
+            return "start"; // lineCommentRegionStart
+    
+        return fw;
+    };
 
     this.getFoldWidgetRange = function(session, foldStyle, row, forceMultiline) {
         var line = session.getLine(row);
+        
+        if (this.startRegionRe.test(line))
+            return this.getCommentRegionBlock(session, line, row);
+        
         var match = line.match(this.foldingStartMarker);
         if (match) {
             var i = match.index;
@@ -2741,6 +2763,29 @@ oop.inherits(FoldMode, BaseFoldMode);
         }
         
         return new Range(startRow, startColumn, endRow, session.getLine(endRow).length);
+    };
+    
+    this.getCommentRegionBlock = function(session, line, row) {
+        var startColumn = line.search(/\s*$/);
+        var maxRow = session.getLength();
+        var startRow = row;
+        
+        var re = /^\s*(?:\/\*|\/\/)#(end)?region\b/;
+        var depth = 1;
+        while (++row < maxRow) {
+            line = session.getLine(row);
+            var m = re.exec(line);
+            if (!m) continue;
+            if (m[1]) depth--;
+            else depth++;
+
+            if (!depth) break;
+        }
+
+        var endRow = row;
+        if (endRow > startRow) {
+            return new Range(startRow, startColumn, endRow, line.length);
+        }
     };
 
 }).call(FoldMode.prototype);

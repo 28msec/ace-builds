@@ -61,7 +61,7 @@ var RustHighlightRules = function() {
          { token: 'keyword.source.rust',
            regex: '\\b(?:as|assert|break|claim|const|copy|Copy|do|drop|else|extern|fail|for|if|impl|in|let|log|loop|match|mod|module|move|mut|Owned|priv|pub|pure|ref|return|unchecked|unsafe|use|while|mod|Send|static|trait|class|struct|enum|type)\\b' },
          { token: 'storage.type.source.rust',
-           regex: '\\b(?:Self|m32|m64|m128|f80|f16|f128|int|uint|float|char|bool|u8|u16|u32|u64|f32|f64|i8|i16|i32|i64|str|option|either|c_float|c_double|c_void|FILE|fpos_t|DIR|dirent|c_char|c_schar|c_uchar|c_short|c_ushort|c_int|c_uint|c_long|c_ulong|size_t|ptrdiff_t|clock_t|time_t|c_longlong|c_ulonglong|intptr_t|uintptr_t|off_t|dev_t|ino_t|pid_t|mode_t|ssize_t)\\b' },
+           regex: '\\b(?:Self|m32|m64|m128|f80|f16|f128|int|uint|isize|usize|float|char|bool|u8|u16|u32|u64|f32|f64|i8|i16|i32|i64|str|option|either|c_float|c_double|c_void|FILE|fpos_t|DIR|dirent|c_char|c_schar|c_uchar|c_short|c_ushort|c_int|c_uint|c_long|c_ulong|size_t|ptrdiff_t|clock_t|time_t|c_longlong|c_ulonglong|intptr_t|uintptr_t|off_t|dev_t|ino_t|pid_t|mode_t|ssize_t)\\b' },
          { token: 'variable.language.source.rust', regex: '\\bself\\b' },
          { token: 'keyword.operator',
             regex: '!|\\$|\\*|\\-\\-|\\-|\\+\\+|\\+|-->|===|==|=|!=|!==|<=|>=|<<=|>>=|>>>=|<>|<|>|!|&&|\\|\\||\\?\\:|\\*=|/=|%=|\\+=|\\-=|&=|\\^=|,|;' },
@@ -72,11 +72,11 @@ var RustHighlightRules = function() {
          { token: 'meta.preprocessor.source.rust',
            regex: '\\b\\w\\(\\w\\)*!|#\\[[\\w=\\(\\)_]+\\]\\b' },
          { token: 'constant.numeric.integer.source.rust',
-           regex: '\\b(?:[0-9][0-9_]*|[0-9][0-9_]*(?:u|u8|u16|u32|u64)|[0-9][0-9_]*(?:i|i8|i16|i32|i64))\\b' },
+           regex: '\\b(?:[0-9][0-9_]*|[0-9][0-9_]*(?:u|us|u8|u16|u32|u64)|[0-9][0-9_]*(?:i|is|i8|i16|i32|i64))\\b' },
          { token: 'constant.numeric.hex.source.rust',
-           regex: '\\b(?:0x[a-fA-F0-9_]+|0x[a-fA-F0-9_]+(?:u|u8|u16|u32|u64)|0x[a-fA-F0-9_]+(?:i|i8|i16|i32|i64))\\b' },
+           regex: '\\b(?:0x[a-fA-F0-9_]+|0x[a-fA-F0-9_]+(?:u|us|u8|u16|u32|u64)|0x[a-fA-F0-9_]+(?:i|is|i8|i16|i32|i64))\\b' },
          { token: 'constant.numeric.binary.source.rust',
-           regex: '\\b(?:0b[01_]+|0b[01_]+(?:u|u8|u16|u32|u64)|0b[01_]+(?:i|i8|i16|i32|i64))\\b' },
+           regex: '\\b(?:0b[01_]+|0b[01_]+(?:u|us|u8|u16|u32|u64)|0b[01_]+(?:i|is|i8|i16|i32|i64))\\b' },
          { token: 'constant.numeric.float.source.rust',
            regex: '[0-9][0-9_]*(?:f32|f64|f)|[0-9][0-9_]*[eE][+-]=[0-9_]+|[0-9][0-9_]*[eE][+-]=[0-9_]+(?:f32|f64|f)|[0-9][0-9_]*\\.[0-9_]+|[0-9][0-9_]*\\.[0-9_]+(?:f32|f64|f)|[0-9][0-9_]*\\.[0-9_]+%[eE][+-]=[0-9_]+|[0-9][0-9_]*\\.[0-9_]+%[eE][+-]=[0-9_]+(?:f32|f64|f)' },
          { token: 'comment.line.documentation.source.rust',
@@ -143,12 +143,35 @@ var FoldMode = exports.FoldMode = function(commentRegex) {
 oop.inherits(FoldMode, BaseFoldMode);
 
 (function() {
-
+    
     this.foldingStartMarker = /(\{|\[)[^\}\]]*$|^\s*(\/\*)/;
     this.foldingStopMarker = /^[^\[\{]*(\}|\])|^[\s\*]*(\*\/)/;
+    this.singleLineBlockCommentRe= /^\s*(\/\*).*\*\/\s*$/;
+    this.tripleStarBlockCommentRe = /^\s*(\/\*\*\*).*\*\/\s*$/;
+    this.startRegionRe = /^\s*(\/\*|\/\/)#region\b/;
+    this._getFoldWidgetBase = this.getFoldWidget;
+    this.getFoldWidget = function(session, foldStyle, row) {
+        var line = session.getLine(row);
+    
+        if (this.singleLineBlockCommentRe.test(line)) {
+            if (!this.startRegionRe.test(line) && !this.tripleStarBlockCommentRe.test(line))
+                return "";
+        }
+    
+        var fw = this._getFoldWidgetBase(session, foldStyle, row);
+    
+        if (!fw && this.startRegionRe.test(line))
+            return "start"; // lineCommentRegionStart
+    
+        return fw;
+    };
 
     this.getFoldWidgetRange = function(session, foldStyle, row, forceMultiline) {
         var line = session.getLine(row);
+        
+        if (this.startRegionRe.test(line))
+            return this.getCommentRegionBlock(session, line, row);
+        
         var match = line.match(this.foldingStartMarker);
         if (match) {
             var i = match.index;
@@ -212,6 +235,29 @@ oop.inherits(FoldMode, BaseFoldMode);
         }
         
         return new Range(startRow, startColumn, endRow, session.getLine(endRow).length);
+    };
+    
+    this.getCommentRegionBlock = function(session, line, row) {
+        var startColumn = line.search(/\s*$/);
+        var maxRow = session.getLength();
+        var startRow = row;
+        
+        var re = /^\s*(?:\/\*|\/\/)#(end)?region\b/;
+        var depth = 1;
+        while (++row < maxRow) {
+            line = session.getLine(row);
+            var m = re.exec(line);
+            if (!m) continue;
+            if (m[1]) depth--;
+            else depth++;
+
+            if (!depth) break;
+        }
+
+        var endRow = row;
+        if (endRow > startRow) {
+            return new Range(startRow, startColumn, endRow, line.length);
+        }
     };
 
 }).call(FoldMode.prototype);
