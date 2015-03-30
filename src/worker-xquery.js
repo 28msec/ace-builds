@@ -57103,9 +57103,6 @@ var getModuleResolverFromModules = function(modules){
 var XQueryWorker = exports.XQueryWorker = function(sender) {
     Mirror.call(this, sender);
     this.setTimeout(200);
-    this.opts = {
-        styleCheck: false
-    };
     var that = this;
 
     this.sender.on("complete", function(e){
@@ -57121,7 +57118,7 @@ var XQueryWorker = exports.XQueryWorker = function(sender) {
     });
 
     this.sender.on("setFileName", function(e){
-        that.opts.fileName = e.data;
+        that.fileName = e.data;
     });
 
     this.sender.on("setModuleResolver", function(e){
@@ -57145,7 +57142,8 @@ oop.inherits(XQueryWorker, Mirror);
         }
         var opts = {
             styleCheck: this.styleCheck,
-            staticContext: sctx
+            staticContext: sctx,
+            fileName: this.fileName
         };
         this.xqlint = new XQLint(value, opts);
         this.sender.emit("markers", this.xqlint.getMarkers());
