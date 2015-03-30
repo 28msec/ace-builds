@@ -57120,6 +57120,10 @@ var XQueryWorker = exports.XQueryWorker = function(sender) {
         that.availableModuleNamespaces = e.data;
     });
 
+    this.sender.on("setFileName", function(e){
+        that.opts.fileName = e.data;
+    });
+
     this.sender.on("setModuleResolver", function(e){
         that.moduleResolver = getModuleResolverFromModules(e.data);
     });
